@@ -1,4 +1,5 @@
 use crate::opcodes;
+use core::panic;
 use std::{collections::HashMap, result};
 
 /// # Status Register (P) http://wiki.nesdev.com/w/index.php/Status_flags
@@ -65,6 +66,7 @@ pub struct CPU {
     pub stack_pointer: u8,
     pub program_counter: u16,
     memory: [u8; 0xFFFF],
+    log: String,
 }
 
 impl CPU {
@@ -77,6 +79,7 @@ impl CPU {
             stack_pointer: 0,
             program_counter: 0,
             memory: [0; 0xFFFF],
+            log: String::new(),
         }
     }
 
@@ -198,7 +201,9 @@ impl CPU {
         let addr = self.get_operand_address(mode);
         let value = self.mem_read(addr);
 
-        self.status.zero_flag = value == 0;
+        let result = self.register_a & value;
+
+        self.status.zero_flag = result == 0;
         self.status.overflow_flag = value & 0b0100_0000 != 0;
         self.status.negative_flag = value & 0b1000_0000 != 0;
     }
@@ -417,21 +422,21 @@ impl CPU {
         }
     }
 
-    fn mem_read(&self, addr: u16) -> u8 {
+    pub fn mem_read(&self, addr: u16) -> u8 {
         self.memory[addr as usize]
     }
 
-    fn mem_write(&mut self, addr: u16, data: u8) {
+    pub fn mem_write(&mut self, addr: u16, data: u8) {
         self.memory[addr as usize] = data;
     }
 
-    fn mem_read_u16(&self, pos: u16) -> u16 {
+    pub fn mem_read_u16(&self, pos: u16) -> u16 {
         let lo = self.mem_read(pos) as u16;
         let hi = self.mem_read(pos + 1) as u16;
         (hi << 8) | lo
     }
 
-    fn mem_write_u16(&mut self, pos: u16, data: u16) {
+    pub fn mem_write_u16(&mut self, pos: u16, data: u16) {
         let hi = (data >> 8) as u8;
         let lo = (data & 0xff) as u8;
         self.mem_write(pos, lo);
@@ -460,7 +465,7 @@ impl CPU {
         let lo = self.stack_pop() as u16;
         let hi = self.stack_pop() as u16;
 
-        hi << 8 & lo
+        hi << 8 | lo
     }
 
     pub fn load_and_run(&mut self, program: Vec<u8>) {
@@ -470,11 +475,23 @@ impl CPU {
     }
 
     pub fn load(&mut self, program: Vec<u8>) {
-        self.memory[0x8000..(0x8000 + program.len())].copy_from_slice(&program[..]);
-        self.mem_write_u16(0xFFFC, 0x8000);
+        self.memory[0x0600..(0x0600 + program.len())].copy_from_slice(&program[..]);
+        self.mem_write_u16(0xFFFC, 0x0600);
+    }
+
+    pub fn reset(&mut self) {
+        self.register_a = 0;
+        self.register_x = 0;
+        self.status = Status::from_u8(0b0010_0100);
+        self.stack_pointer = STACK_RESET;
+        self.program_counter = self.mem_read_u16(0xFFFC);
     }
 
     pub fn run(&mut self) {
+        self.run_with_callback(|_| {});
+    }
+
+    pub fn run_with_callback(&mut self, mut callback: impl FnMut(&mut CPU)) {
         let ref opcode_table: HashMap<u8, &'static opcodes::OpCode> = *opcodes::OPCODES_MAP;
 
         loop {
@@ -482,6 +499,9 @@ impl CPU {
             let opcode = opcode_table
                 .get(&code)
                 .expect(&format!("OpCode {:x} is not recognized", code));
+
+            self.log
+                .push_str(&format!("{}({:x}) ", opcode.mnemonic, &opcode.code));
 
             self.program_counter += 1;
             let last_program_counter = self.program_counter;
@@ -722,15 +742,9 @@ impl CPU {
             if last_program_counter == self.program_counter {
                 self.program_counter += (opcode.len - 1) as u16;
             }
-        }
-    }
 
-    pub fn reset(&mut self) {
-        self.register_a = 0;
-        self.register_x = 0;
-        self.status = Status::from_u8(0b0010_0100);
-        self.stack_pointer = STACK_RESET;
-        self.program_counter = self.mem_read_u16(0xFFFC);
+            callback(self);
+        }
     }
 
     fn get_operand_address(&self, mode: &AddressingMode) -> u16 {
@@ -1072,13 +1086,41 @@ mod test {
     #[test]
     fn test_bit() {
         let mut cpu = CPU::new();
-        cpu.load(vec![0xa9, 0xc0, 0x85, 0xB0, 0x24, 0xb0]);
+        cpu.load(vec![
+            0xa9,
+            0b1010_1010,
+            0x85,
+            0xc0,
+            0xa9,
+            0b1011_1111,
+            0x24,
+            0xc0,
+            0xb0,
+        ]);
         cpu.reset();
         cpu.run();
 
         assert_eq!(cpu.status.zero_flag, false);
-        assert_eq!(cpu.status.overflow_flag, true);
+        assert_eq!(cpu.status.overflow_flag, false);
         assert_eq!(cpu.status.negative_flag, true);
+
+        cpu.load(vec![
+            0xa9,
+            0b0011_1111,
+            0x85,
+            0xc0,
+            0xa9,
+            0b1100_0000,
+            0x24,
+            0xc0,
+            0xb0,
+        ]);
+        cpu.reset();
+        cpu.run();
+
+        assert_eq!(cpu.status.zero_flag, true);
+        assert_eq!(cpu.status.overflow_flag, false);
+        assert_eq!(cpu.status.negative_flag, false);
     }
 
     #[test]
@@ -1255,25 +1297,41 @@ mod test {
     #[test]
     fn test_jsr() {
         let mut cpu = CPU::new();
-        cpu.load(vec![0x20, 0x04, 0x80, 0x00, 0xa9, 0x51, 0x00]);
+        cpu.load(vec![]);
+        cpu.reset();
+
+        let start_addr = cpu.program_counter;
+        let lo = (start_addr & 0xff) as u8;
+        let hi = (start_addr >> 8) as u8;
+
+        cpu.load(vec![0x20, lo + 4, hi, 0x00, 0xa9, 0x51, 0x00]);
         cpu.reset();
         cpu.run();
 
         assert_eq!(cpu.register_a, 0x51);
-        assert_eq!(cpu.stack_pointer, 0xfd);
-        assert_eq!(cpu.mem_read_u16(STACK_BASE + 0xfe), 0x8002);
+        assert_eq!(cpu.stack_pointer, STACK_RESET - 2);
+        assert_eq!(
+            cpu.mem_read_u16(STACK_BASE + (cpu.stack_pointer as u16) + 1),
+            start_addr + 2
+        );
     }
 
     #[test]
     fn test_rts() {
         let mut cpu = CPU::new();
-        cpu.load(vec![
-            0x20, 0x04, 0x80, 0x00, 0xa9, 0x51, 0x60, 0x00, 0xa9, 0x50,
-        ]);
+        cpu.load(vec![]);
+        cpu.reset();
+
+        let start_addr = cpu.program_counter;
+        let lo = (start_addr & 0xff) as u8;
+        let hi = (start_addr >> 8) as u8;
+
+        cpu.load(vec![0x20, lo + 4, hi, 0x00, 0xa9, 0x51, 0x60, 0x00]);
         cpu.reset();
         cpu.run();
 
-        assert_eq!(cpu.register_a, 0x51);
+        assert_eq!(cpu.stack_pointer, STACK_RESET);
+        assert_eq!(cpu.program_counter, start_addr + 4);
     }
 
     #[test]
