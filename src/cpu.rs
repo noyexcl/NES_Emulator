@@ -1,10 +1,9 @@
 use crate::opcodes;
 use core::panic;
-use std::{collections::HashMap, result};
+use std::collections::HashMap;
 
 /// # Status Register (P) http://wiki.nesdev.com/w/index.php/Status_flags
 /// # unused flag(5) is always 1 because it's hardwired so.
-///
 ///
 ///  7 6 5 4 3 2 1 0
 ///  N V _ B D I Z C
