@@ -1,4 +1,4 @@
-use crate::opcodes;
+use crate::{bus::Bus, opcodes};
 use core::panic;
 use std::collections::HashMap;
 
@@ -64,8 +64,45 @@ pub struct CPU {
     pub status: Status,
     pub stack_pointer: u8,
     pub program_counter: u16,
-    memory: [u8; 0xFFFF],
+    pub bus: Bus,
     log: String,
+}
+
+pub trait Mem {
+    fn mem_read(&self, addr: u16) -> u8;
+
+    fn mem_write(&mut self, addr: u16, data: u8);
+
+    fn mem_read_u16(&self, pos: u16) -> u16 {
+        let lo = self.mem_read(pos) as u16;
+        let hi = self.mem_read(pos + 1) as u16;
+        (hi << 8) | lo as u16
+    }
+
+    fn mem_write_u16(&mut self, pos: u16, data: u16) {
+        let hi = (data >> 8) as u8;
+        let lo = (data & 0xff) as u8;
+        self.mem_write(pos, lo);
+        self.mem_write(pos + 1, hi);
+    }
+}
+
+impl Mem for CPU {
+    fn mem_read(&self, addr: u16) -> u8 {
+        self.bus.mem_read(addr)
+    }
+
+    fn mem_write(&mut self, addr: u16, data: u8) {
+        self.bus.mem_write(addr, data)
+    }
+
+    fn mem_read_u16(&self, pos: u16) -> u16 {
+        self.bus.mem_read_u16(pos)
+    }
+
+    fn mem_write_u16(&mut self, pos: u16, data: u16) {
+        self.bus.mem_write_u16(pos, data)
+    }
 }
 
 impl CPU {
@@ -77,7 +114,7 @@ impl CPU {
             status: Status::default(),
             stack_pointer: 0,
             program_counter: 0,
-            memory: [0; 0xFFFF],
+            bus: Bus::new(),
             log: String::new(),
         }
     }
@@ -421,27 +458,6 @@ impl CPU {
         }
     }
 
-    pub fn mem_read(&self, addr: u16) -> u8 {
-        self.memory[addr as usize]
-    }
-
-    pub fn mem_write(&mut self, addr: u16, data: u8) {
-        self.memory[addr as usize] = data;
-    }
-
-    pub fn mem_read_u16(&self, pos: u16) -> u16 {
-        let lo = self.mem_read(pos) as u16;
-        let hi = self.mem_read(pos + 1) as u16;
-        (hi << 8) | lo
-    }
-
-    pub fn mem_write_u16(&mut self, pos: u16, data: u16) {
-        let hi = (data >> 8) as u8;
-        let lo = (data & 0xff) as u8;
-        self.mem_write(pos, lo);
-        self.mem_write(pos + 1, hi);
-    }
-
     fn stack_push(&mut self, data: u8) {
         self.mem_write(STACK_BASE + self.stack_pointer as u16, data);
         self.stack_pointer = self.stack_pointer.wrapping_sub(1);
@@ -474,8 +490,10 @@ impl CPU {
     }
 
     pub fn load(&mut self, program: Vec<u8>) {
-        self.memory[0x0600..(0x0600 + program.len())].copy_from_slice(&program[..]);
-        self.mem_write_u16(0xFFFC, 0x0600);
+        for i in 0..(program.len() as u16) {
+            self.mem_write(0x0600 + i, program[i as usize]);
+        }
+        self.mem_write_u16(0xFFFC, 0x0600)
     }
 
     pub fn reset(&mut self) {
@@ -1212,7 +1230,7 @@ mod test {
         cpu.reset();
         cpu.run();
 
-        assert_eq!(cpu.memory[0xc0], 0x50);
+        assert_eq!(cpu.mem_read(0xc0), 0x50);
         assert_eq!(cpu.status.negative_flag, false);
         assert_eq!(cpu.status.zero_flag, false);
     }
@@ -1263,7 +1281,7 @@ mod test {
         cpu.reset();
         cpu.run();
 
-        assert_eq!(cpu.memory[0xc0], 0x52);
+        assert_eq!(cpu.mem_read(0xc0), 0x52);
         assert_eq!(cpu.status.negative_flag, false);
         assert_eq!(cpu.status.zero_flag, false);
     }
