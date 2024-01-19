@@ -2,6 +2,10 @@ mod bus;
 mod cpu;
 mod opcodes;
 mod rom;
+mod trace;
+
+use std::fs::File;
+use std::io::Write;
 
 use bus::Bus;
 use cpu::Mem;
@@ -13,6 +17,7 @@ use sdl2::keyboard::Keycode;
 use sdl2::pixels::Color;
 use sdl2::pixels::PixelFormatEnum;
 use sdl2::EventPump;
+use trace::trace;
 
 fn color(byte: u8) -> Color {
     match byte {
@@ -83,6 +88,7 @@ fn handle_user_input(cpu: &mut CPU, event_pump: &mut EventPump) {
 }
 
 fn main() {
+    /*
     // init sdl2
     let sdl_context = sdl2::init().unwrap();
     let video_subsystem = sdl_context.video().unwrap();
@@ -100,17 +106,20 @@ fn main() {
     let mut texture = creator
         .create_texture_target(PixelFormatEnum::RGB24, 32, 32)
         .unwrap();
+    */
 
     //load the game
-    let raw = std::fs::read("snake.nes").unwrap();
+    let raw = std::fs::read("nestest.nes").unwrap();
     let rom = Rom::new(&raw).unwrap();
     let mut cpu = CPU::new(Bus::new(rom));
     cpu.reset();
+    cpu.program_counter = 0xc000;
 
     let mut screen_state = [0 as u8; 32 * 3 * 32];
     let mut rng = rand::thread_rng();
 
     // run the game cycle
+    /*
     cpu.run_with_callback(move |cpu| {
         handle_user_input(cpu, &mut event_pump);
 
@@ -126,4 +135,14 @@ fn main() {
 
         ::std::thread::sleep(std::time::Duration::new(0, 70_000));
     });
+    */
+
+    let mut file = File::create("nes.log").unwrap();
+
+    cpu.run_with_callback(move |cpu| {
+        let log = trace(cpu) + "\n";
+        // Write log into nex.log File
+        file.write_all(log.as_bytes()).unwrap();
+        file.flush().unwrap();
+    })
 }

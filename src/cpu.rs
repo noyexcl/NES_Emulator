@@ -55,7 +55,7 @@ impl Status {
 }
 
 const STACK_BASE: u16 = 0x0100;
-const STACK_RESET: u8 = 0xff;
+const STACK_RESET: u8 = 0xfd;
 
 pub struct CPU {
     pub register_a: u8,
@@ -174,7 +174,7 @@ impl CPU {
     }
 
     fn tya(&mut self) {
-        self.register_a = self.register_x;
+        self.register_a = self.register_y;
         self.update_zero_and_negative_flags(self.register_a);
     }
 
@@ -256,8 +256,7 @@ impl CPU {
             return;
         }
 
-        let rhs = rhs + carry_in as u8;
-        let (result, carry_out) = lhs.overflowing_add(rhs);
+        let (result, carry_out) = lhs.overflowing_add(rhs + carry_in);
 
         // キャリーフラグのオーバーフローとは別に、符号付き計算でのオーバーフローを考慮する(Vフラグ)
         let flag_v = (lhs ^ result) & (rhs ^ result) & 0x80 != 0;
@@ -439,8 +438,8 @@ impl CPU {
 
     fn rti(&mut self) {
         let data = self.stack_pop();
-        let mut status = Status::from_u8(data);
-        status.break_command = false;
+        self.status = Status::from_u8(data);
+        self.status.break_command = false;
         self.program_counter = self.stack_pop_u16();
     }
 
@@ -499,6 +498,8 @@ impl CPU {
         let ref opcode_table: HashMap<u8, &'static opcodes::OpCode> = *opcodes::OPCODES_MAP;
 
         loop {
+            callback(self);
+
             let code = self.mem_read(self.program_counter);
             let opcode = opcode_table
                 .get(&code)
@@ -714,6 +715,9 @@ impl CPU {
                 0x18 => {
                     self.status.carry_flag = false;
                 }
+                0xd8 => {
+                    self.status.decimal_mode_flag = false;
+                }
                 // CLI
                 0x58 => {
                     self.status.interrupt_disable_flag = false;
@@ -726,6 +730,10 @@ impl CPU {
                 // SEC
                 0x38 => {
                     self.status.carry_flag = true;
+                }
+                // SED
+                0xF8 => {
+                    self.status.decimal_mode_flag = true;
                 }
                 // SEI
                 0x78 => {
@@ -746,8 +754,6 @@ impl CPU {
             if last_program_counter == self.program_counter {
                 self.program_counter += (opcode.len - 1) as u16;
             }
-
-            callback(self);
         }
     }
 
@@ -768,14 +774,20 @@ impl CPU {
                 addr
             }
             AddressingMode::Absolute_X => {
-                let pos = self.mem_read(self.program_counter);
-                let addr = pos.wrapping_add(self.register_x) as u16;
-                addr
+                let lo = self.mem_read(self.program_counter) as u16;
+                let hi = self.mem_read(self.program_counter + 1) as u16;
+                let addr = lo | (hi << 8);
+
+                let indexed_addr = addr.wrapping_add(self.register_x as u16);
+                indexed_addr
             }
             AddressingMode::Absolute_Y => {
-                let base = self.mem_read_u16(self.program_counter);
-                let addr = base.wrapping_add(self.register_y as u16);
-                addr
+                let lo = self.mem_read(self.program_counter) as u16;
+                let hi = self.mem_read(self.program_counter + 1) as u16;
+                let addr = lo | (hi << 8);
+
+                let indexed_addr = addr.wrapping_add(self.register_y as u16);
+                indexed_addr
             }
             AddressingMode::Indirect => {
                 // 6502にはページをまたぐIndirectにバグが存在している
@@ -954,6 +966,20 @@ mod test {
         assert_eq!(cpu.status.negative_flag, false);
         assert_eq!(cpu.status.overflow_flag, true);
         assert_eq!(cpu.status.carry_flag, true);
+    }
+
+    #[test]
+    fn test_adc_ff() {
+        let test_rom = TestRom::create_test_rom(vec![0xa9, 0x7f, 0x69, 0x7f, 0x00]);
+        let mut cpu = CPU::new(Bus::new(test_rom));
+        cpu.reset();
+        cpu.status.carry_flag = true;
+        cpu.run();
+
+        assert_eq!(cpu.register_a, 0xff);
+        assert_eq!(cpu.status.negative_flag, true);
+        assert_eq!(cpu.status.overflow_flag, true);
+        assert_eq!(cpu.status.carry_flag, false);
     }
 
     #[test]
@@ -1529,6 +1555,6 @@ mod test {
         cpu.reset();
         cpu.run();
 
-        assert_eq!(cpu.register_x, 0xff);
+        assert_eq!(cpu.register_x, 0xfd);
     }
 }

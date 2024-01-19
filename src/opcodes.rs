@@ -110,7 +110,7 @@ lazy_static! {
     OpCode::new(0x75, "ADC", 2, 4, AddressingMode::ZeroPage_X),
     OpCode::new(0x6D, "ADC", 3, 4, AddressingMode::Absolute),
     OpCode::new(0x7D, "ADC", 3, 4, /* +1 if page crossed */ AddressingMode::Absolute_X),
-    OpCode::new(0x70, "ADC", 3, 4, /* +1 if page crossed */ AddressingMode::Absolute_Y),
+    OpCode::new(0x79, "ADC", 3, 4, /* +1 if page crossed */ AddressingMode::Absolute_Y),
     OpCode::new(0x61, "ADC", 2, 6, AddressingMode::Indirect_X),
     OpCode::new(0x71, "ADC", 2, 5, /* +1 if page crossed */ AddressingMode::Indirect_Y),
     // Subtract with Carry (N,V,Z,C)
@@ -216,12 +216,16 @@ lazy_static! {
     /* --- Status Flag Changes --- */
     // Clear carry flag (C)
     OpCode::new(0x18, "CLC", 1, 2, AddressingMode::NoneAddressing),
+    // Clear decimal mode flag (D)
+    OpCode::new(0xD8, "CLD", 1, 2, AddressingMode::NoneAddressing),
     // Clear interrupt disable flag (I)
     OpCode::new(0x58, "CLI", 1, 2, AddressingMode::NoneAddressing),
     // Clear overflow flag (V)
     OpCode::new(0xB8, "CLV", 1, 2, AddressingMode::NoneAddressing),
     // set carry flag (C)
     OpCode::new(0x38, "SEC", 1, 2, AddressingMode::NoneAddressing),
+    // set decimal mode flag (D)
+    OpCode::new(0xF8, "SED", 1, 2, AddressingMode::NoneAddressing),
     // set interrupt disable flag (I)
     OpCode::new(0x78, "SEI", 1, 2, AddressingMode::NoneAddressing),
 
