@@ -1,6 +1,7 @@
 mod bus;
 mod cpu;
 mod opcodes;
+mod ppu;
 mod rom;
 mod trace;
 
@@ -33,7 +34,7 @@ fn color(byte: u8) -> Color {
     }
 }
 
-fn read_screen_state(cpu: &CPU, frame: &mut [u8; 32 * 3 * 32]) -> bool {
+fn read_screen_state(cpu: &mut CPU, frame: &mut [u8; 32 * 3 * 32]) -> bool {
     let mut frame_idx = 0;
     let mut update = false;
     for i in 0x0200..0x600 {
