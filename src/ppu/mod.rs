@@ -7,6 +7,7 @@ use self::registers::{
 use crate::rom::Mirroring;
 
 pub struct NesPPU {
+    pub nmi_interrupt: Option<u8>,
     pub chr_rom: Vec<u8>,
     pub vram: [u8; 2048],
     pub pallet_table: [u8; 32],
@@ -19,6 +20,8 @@ pub struct NesPPU {
     pub oam_data: [u8; 256],
     pub addr: AddrRegister,
     internal_data_buf: u8,
+    scanline: u16,
+    cycles: usize,
 }
 
 impl NesPPU {
@@ -36,6 +39,9 @@ impl NesPPU {
             oam_addr: 0,
             addr: AddrRegister::new(),
             internal_data_buf: 0,
+            scanline: 0,
+            cycles: 0,
+            nmi_interrupt: None,
         }
     }
 
@@ -48,7 +54,11 @@ impl NesPPU {
     }
 
     pub fn write_to_ctrl(&mut self, value: u8) {
+        let before_nmi_status = self.ctrl.generate_vblank_nmi();
         self.ctrl = ControlRegister::from_bits_truncate(value);
+        if !before_nmi_status && self.ctrl.generate_vblank_nmi() && self.status.is_in_vblank() {
+            self.nmi_interrupt = Some(1);
+        }
     }
 
     pub fn write_to_mask(&mut self, value: u8) {
@@ -167,12 +177,37 @@ impl NesPPU {
             _ => vram_index,
         }
     }
+
+    pub fn tick(&mut self, cycles: u8) -> bool {
+        self.cycles += cycles as usize;
+        if self.cycles >= 341 {
+            self.cycles = self.cycles - 341;
+            self.scanline += 1;
+
+            if self.scanline == 241 {
+                self.status.set_vblank_status(true);
+                self.status.set_sprite_zero_hit(false);
+
+                if self.ctrl.generate_vblank_nmi() {
+                    self.nmi_interrupt = Some(1);
+                }
+            }
+
+            if self.scanline >= 262 {
+                self.scanline = 0;
+                self.nmi_interrupt = None;
+                self.status.set_sprite_zero_hit(false);
+                self.status.reset_vblank_status();
+                return true;
+            }
+        }
+
+        return false;
+    }
 }
 
 #[cfg(test)]
 pub mod test {
-    use bitflags::Flags;
-
     use super::*;
 
     #[test]
