@@ -5,7 +5,7 @@ use crate::{
     opcodes,
 };
 
-pub fn trace(cpu: &CPU) -> String {
+pub fn trace(cpu: &mut CPU) -> String {
     let mut result = String::new();
     let ref opcode_table: HashMap<u8, &'static opcodes::OpCode> = *opcodes::OPCODES_MAP;
     let code = cpu.bus.mem_read(cpu.program_counter);
@@ -208,7 +208,7 @@ pub fn trace(cpu: &CPU) -> String {
     result
 }
 
-fn get_operand_address(cpu: &CPU, mode: &AddressingMode) -> u16 {
+fn get_operand_address(cpu: &mut CPU, mode: &AddressingMode) -> u16 {
     let counter = cpu.program_counter + 1;
 
     match mode {
