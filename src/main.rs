@@ -2,6 +2,7 @@ mod bus;
 mod cpu;
 mod opcodes;
 mod ppu;
+mod render;
 mod rom;
 mod trace;
 
@@ -11,7 +12,10 @@ use std::io::Write;
 use bus::Bus;
 use cpu::Mem;
 use cpu::CPU;
+use ppu::NesPPU;
 use rand::Rng;
+use render::frame::show_tile;
+use render::frame::Frame;
 use rom::Rom;
 use sdl2::event::Event;
 use sdl2::keyboard::Keycode;
@@ -89,35 +93,62 @@ fn handle_user_input(cpu: &mut CPU, event_pump: &mut EventPump) {
 }
 
 fn main() {
-    /*
     // init sdl2
     let sdl_context = sdl2::init().unwrap();
     let video_subsystem = sdl_context.video().unwrap();
     let window = video_subsystem
-        .window("Snake game", (32.0 * 10.0) as u32, (32.0 * 10.0) as u32)
+        .window("Tile Viewer", (256.0 * 3.0) as u32, (240.0 * 3.0) as u32)
         .position_centered()
         .build()
         .unwrap();
 
     let mut canvas = window.into_canvas().present_vsync().build().unwrap();
     let mut event_pump = sdl_context.event_pump().unwrap();
-    canvas.set_scale(10.0, 10.0).unwrap();
+    canvas.set_scale(3.0, 3.0).unwrap();
 
     let creator = canvas.texture_creator();
     let mut texture = creator
-        .create_texture_target(PixelFormatEnum::RGB24, 32, 32)
+        .create_texture_target(PixelFormatEnum::RGB24, 256, 240)
         .unwrap();
-    */
 
     //load the game
-    let raw = std::fs::read("nestest.nes").unwrap();
+    let raw = std::fs::read("pacman.nes").unwrap();
     let rom = Rom::new(&raw).unwrap();
+
+    let mut frame = Frame::new();
+
+    let bus = Bus::new(rom, move |ppu: &NesPPU| {
+        render::render(ppu, &mut frame);
+        texture.update(None, &frame.data, 256 * 3).unwrap();
+
+        canvas.copy(&texture, None, None).unwrap();
+        canvas.present();
+
+        for event in event_pump.poll_iter() {
+            match event {
+                Event::Quit { .. }
+                | Event::KeyDown {
+                    keycode: Some(Keycode::Escape),
+                    ..
+                } => std::process::exit(0),
+                _ => { /* do nothing */ }
+            }
+        }
+    });
+
+    let mut cpu = CPU::new(bus);
+    cpu.reset();
+    cpu.run();
+
+
+    /*
     let mut cpu = CPU::new(Bus::new(rom));
     cpu.reset();
     cpu.program_counter = 0xc000;
 
     let mut screen_state = [0 as u8; 32 * 3 * 32];
     let mut rng = rand::thread_rng();
+    */
 
     // run the game cycle
     /*
@@ -138,7 +169,15 @@ fn main() {
     });
     */
 
+    /*
     let mut file = File::create("nes.log").unwrap();
+    let raw = std::fs::read("nestest.nes").unwrap();
+    let rom = Rom::new(&raw).unwrap();
+    let bus = Bus::new(rom, |_| {});
+
+    let mut cpu = CPU::new(bus);
+    cpu.reset();
+    cpu.program_counter = 0xc000;
 
     cpu.run_with_callback(move |cpu| {
         let log = trace(cpu) + "\n";
@@ -146,4 +185,5 @@ fn main() {
         file.write_all(log.as_bytes()).unwrap();
         file.flush().unwrap();
     })
+    */
 }

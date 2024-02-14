@@ -10,7 +10,7 @@ pub struct NesPPU {
     pub nmi_interrupt: Option<u8>,
     pub chr_rom: Vec<u8>,
     pub vram: [u8; 2048],
-    pub pallet_table: [u8; 32],
+    pub palette_table: [u8; 32],
     pub mirroring: Mirroring,
     pub ctrl: ControlRegister,
     pub mask: MaskRegister,
@@ -28,7 +28,7 @@ impl NesPPU {
     pub fn new(chr_rom: Vec<u8>, mirroring: Mirroring) -> Self {
         NesPPU {
             chr_rom,
-            pallet_table: [0; 32],
+            palette_table: [0; 32],
             vram: [0; 2048],
             oam_data: [0; 64 * 4],
             mirroring,
@@ -42,6 +42,27 @@ impl NesPPU {
             scanline: 0,
             cycles: 0,
             nmi_interrupt: None,
+        }
+    }
+
+    // Horizontal:
+    //   [ A ] [ A']
+    //   [ B ] [ B']
+
+    // Vertical:
+    //   [ A ] [ B ]
+    //   [ A'] [ B']
+    pub fn mirror_vram_addr(&self, addr: u16) -> u16 {
+        let mirrored_vram = addr & 0b0010_1111_1111_1111; // mirror down 0x3000-0x3eff to 0x2000-0x2eff
+        let vram_index = mirrored_vram - 0x2000; // to vram vector
+        let name_table = vram_index / 0x400; // to the name table index
+
+        match (&self.mirroring, name_table) {
+            (Mirroring::Vertical, 2) | (Mirroring::Vertical, 3) => vram_index - 0x800,
+            (Mirroring::Horizontal, 2) => vram_index - 0x400,
+            (Mirroring::Horizontal, 1) => vram_index - 0x400,
+            (Mirroring::Horizontal, 3) => vram_index - 0x800,
+            _ => vram_index,
         }
     }
 
@@ -101,6 +122,32 @@ impl NesPPU {
         self.addr.increment(self.ctrl.vram_addr_increment());
     }
 
+    pub fn write_to_data(&mut self, value: u8) {
+        let addr = self.addr.get();
+
+        match addr {
+            0..=0x1fff => {
+                panic!("attempt to write to chr_rom(addr space 0..0x1fff). it's read only. requested = {:x}", addr)
+                // self.chr_rom[addr as usize] = value;
+            }
+            0x2000..=0x2fff => {
+                self.vram[self.mirror_vram_addr(addr) as usize] = value;
+            }
+            0x3000..=0x3eff => panic!(
+                "addr space 0x3000..0x3eff is not expected to be used, requested = {:x}",
+                addr
+            ),
+            0x3f10 | 0x3f14 | 0x3f18 | 0x3f1c => {
+                let add_mirror = addr - 0x10;
+                self.palette_table[(add_mirror - 0x3f00) as usize] = value;
+            }
+            0x3f00..=0x3fff => self.palette_table[(addr - 0x3f00) as usize] = value,
+            _ => panic!("unexpected access to mirrored space = {:x}", addr),
+        }
+
+        self.increment_vram_addr();
+    }
+
     pub fn read_data(&mut self) -> u8 {
         let addr = self.addr.get();
         self.increment_vram_addr();
@@ -124,57 +171,11 @@ impl NesPPU {
             //Addresses $3F10/$3F14/$3F18/$3F1C are mirrors of $3F00/$3F04/$3F08/$3F0C
             0x3f10 | 0x3f14 | 0x3f18 | 0x3f1c => {
                 let addr_mirror = addr - 0x10;
-                self.pallet_table[(addr_mirror - 0x3f00) as usize]
+                self.palette_table[(addr_mirror - 0x3f00) as usize]
             }
 
-            0x3f00..=0x3fff => self.pallet_table[(addr - 0x3eff) as usize],
+            0x3f00..=0x3fff => self.palette_table[(addr - 0x3eff) as usize],
             _ => panic!("unexpected access to mirrored space = {:x}", addr),
-        }
-    }
-
-    pub fn write_to_data(&mut self, value: u8) {
-        let addr = self.addr.get();
-        self.increment_vram_addr();
-
-        match addr {
-            0..=0x1fff => {
-                panic!("attempt to write to chr_rom(addr space 0..0x1fff). it's read only. requested = {:x}", addr)
-                // self.chr_rom[addr as usize] = value;
-            }
-            0x2000..=0x2fff => {
-                self.vram[self.mirror_vram_addr(addr) as usize] = value;
-            }
-            0x3000..=0x3eff => panic!(
-                "addr space 0x3000..0x3eff is not expected to be used, requested = {:x}",
-                addr
-            ),
-            0x3f10 | 0x3f14 | 0x3f18 | 0x3f1c => {
-                let add_mirror = addr - 0x10;
-                self.pallet_table[(add_mirror - 0x3eff) as usize] = value;
-            }
-            0x3f00..=0x3fff => self.pallet_table[(addr - 0x3eff) as usize] = value,
-            _ => panic!("unexpected access to mirrored space = {:x}", addr),
-        }
-    }
-
-    // Horizontal:
-    //   [ A ] [ A']
-    //   [ B ] [ B']
-
-    // Vertical:
-    //   [ A ] [ B ]
-    //   [ A'] [ B']
-    pub fn mirror_vram_addr(&self, addr: u16) -> u16 {
-        let mirrored_vram = addr & 0b0010_1111_1111_1111; // mirror down 0x3000-0x3eff to 0x2000-0x2eff
-        let vram_index = mirrored_vram - 0x2000; // to vram vector
-        let name_table = vram_index / 0x400; // to the name table index
-
-        match (&self.mirroring, name_table) {
-            (Mirroring::Vertical, 2) | (Mirroring::Vertical, 3) => vram_index - 0x800,
-            (Mirroring::Horizontal, 2) => vram_index - 0x400,
-            (Mirroring::Horizontal, 1) => vram_index - 0x400,
-            (Mirroring::Horizontal, 3) => vram_index - 0x800,
-            _ => vram_index,
         }
     }
 

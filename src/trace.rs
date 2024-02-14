@@ -197,12 +197,19 @@ pub fn trace(cpu: &mut CPU) -> String {
     }
 
     result.push_str(&format!(
-        "A:{:02X} X:{:02X} Y:{:02X} P:{:02X} SP:{:02X}",
+        "A:{:02X} X:{:02X} Y:{:02X} P:{:02X} SP:{:02X} ",
         cpu.register_a,
         cpu.register_x,
         cpu.register_y,
         cpu.status.to_u8(),
         cpu.stack_pointer
+    ));
+
+    result.push_str(&format!(
+        "PPU:{:3},{:3},CYC:{:5}",
+        cpu.bus.cycles,
+        cpu.bus.cycles * 3,
+        cpu.bus.cycles,
     ));
 
     result
@@ -285,7 +292,7 @@ mod test {
 
     #[test]
     fn test_format_trace() {
-        let mut bus = Bus::new(TestRom::create_test_rom(vec![]));
+        let mut bus = Bus::new(TestRom::create_test_rom(vec![]), |_| {});
         bus.mem_write(100, 0xa2);
         bus.mem_write(101, 0x01);
         bus.mem_write(102, 0xca);
@@ -318,7 +325,7 @@ mod test {
 
     #[test]
     fn test_format_mem_access() {
-        let mut bus = Bus::new(TestRom::create_test_rom(vec![]));
+        let mut bus = Bus::new(TestRom::create_test_rom(vec![]), |_| {});
         // ORA ($33), Y
         bus.mem_write(100, 0x11);
         bus.mem_write(101, 0x33);
@@ -346,7 +353,7 @@ mod test {
 
     #[test]
     fn test_zerox_format() {
-        let mut bus = Bus::new(TestRom::create_test_rom(vec![]));
+        let mut bus = Bus::new(TestRom::create_test_rom(vec![]), |_| {});
         // ORA ($33), Y
         bus.mem_write(100, 0xb5);
         bus.mem_write(101, 0x33);
@@ -372,7 +379,7 @@ mod test {
 
     #[test]
     fn test_zeroy_format() {
-        let mut bus = Bus::new(TestRom::create_test_rom(vec![]));
+        let mut bus = Bus::new(TestRom::create_test_rom(vec![]), |_| {});
         bus.mem_write(100, 0xb6);
         bus.mem_write(101, 0x33);
 
