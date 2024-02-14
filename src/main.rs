@@ -1,17 +1,21 @@
 mod bus;
 mod cpu;
+mod joypad;
 mod opcodes;
 mod ppu;
 mod render;
 mod rom;
 mod trace;
 
+use std::collections::HashMap;
 use std::fs::File;
 use std::io::Write;
 
 use bus::Bus;
 use cpu::Mem;
 use cpu::CPU;
+use joypad::Joypad;
+use joypad::JoypadButton;
 use ppu::NesPPU;
 use rand::Rng;
 use render::frame::show_tile;
@@ -111,13 +115,24 @@ fn main() {
         .create_texture_target(PixelFormatEnum::RGB24, 256, 240)
         .unwrap();
 
+    // init joypad
+    let mut key_map = HashMap::new();
+    key_map.insert(Keycode::Down, JoypadButton::DOWN);
+    key_map.insert(Keycode::Up, JoypadButton::UP);
+    key_map.insert(Keycode::Right, JoypadButton::RIGHT);
+    key_map.insert(Keycode::Left, JoypadButton::LEFT);
+    key_map.insert(Keycode::Space, JoypadButton::SELECT);
+    key_map.insert(Keycode::Return, JoypadButton::START);
+    key_map.insert(Keycode::A, JoypadButton::BUTTON_A);
+    key_map.insert(Keycode::S, JoypadButton::BUTTON_B);
+
     //load the game
     let raw = std::fs::read("pacman.nes").unwrap();
     let rom = Rom::new(&raw).unwrap();
 
     let mut frame = Frame::new();
 
-    let bus = Bus::new(rom, move |ppu: &NesPPU| {
+    let bus = Bus::new(rom, move |ppu: &NesPPU, joypad: &mut Joypad| {
         render::render(ppu, &mut frame);
         texture.update(None, &frame.data, 256 * 3).unwrap();
 
@@ -131,6 +146,18 @@ fn main() {
                     keycode: Some(Keycode::Escape),
                     ..
                 } => std::process::exit(0),
+
+                Event::KeyDown { keycode, .. } => {
+                    if let Some(key) = key_map.get(&keycode.unwrap_or(Keycode::Ampersand)) {
+                        joypad.set_button_pressed_status(*key, true);
+                    }
+                }
+                Event::KeyUp { keycode, .. } => {
+                    if let Some(key) = key_map.get(&keycode.unwrap_or(Keycode::Ampersand)) {
+                        joypad.set_button_pressed_status(*key, false);
+                    }
+                }
+
                 _ => { /* do nothing */ }
             }
         }
@@ -139,7 +166,6 @@ fn main() {
     let mut cpu = CPU::new(bus);
     cpu.reset();
     cpu.run();
-
 
     /*
     let mut cpu = CPU::new(Bus::new(rom));
