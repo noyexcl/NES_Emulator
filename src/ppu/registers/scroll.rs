@@ -1,7 +1,7 @@
 pub struct ScrollRegister {
-    x: u8,
-    y: u8,
-    latch: bool,
+    pub x: u8,
+    pub y: u8,
+    pub latch: bool,
 }
 
 impl ScrollRegister {

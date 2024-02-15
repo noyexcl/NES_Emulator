@@ -101,7 +101,7 @@ fn main() {
     let sdl_context = sdl2::init().unwrap();
     let video_subsystem = sdl_context.video().unwrap();
     let window = video_subsystem
-        .window("Tile Viewer", (256.0 * 3.0) as u32, (240.0 * 3.0) as u32)
+        .window("NES Emulator", (256.0 * 3.0) as u32, (240.0 * 3.0) as u32)
         .position_centered()
         .build()
         .unwrap();
@@ -127,7 +127,7 @@ fn main() {
     key_map.insert(Keycode::S, JoypadButton::BUTTON_B);
 
     //load the game
-    let raw = std::fs::read("pacman.nes").unwrap();
+    let raw = std::fs::read("mario.nes").unwrap();
     let rom = Rom::new(&raw).unwrap();
 
     let mut frame = Frame::new();
