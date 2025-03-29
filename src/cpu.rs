@@ -822,7 +822,7 @@ impl<'a> CPU<'a> {
     fn interrupt(&mut self, interrupt: interrupt::Interrupt) {
         self.stack_push_u16(self.program_counter);
         let mut flag = self.status.clone();
-        flag.break_command = interrupt.b_flag_mask & 0b0001_0000 != 1;
+        flag.break_command = interrupt.b_flag_mask & 0b0001_0000 != 0;
 
         self.stack_push(flag.to_u8());
         self.status.interrupt_disable_flag = true;
