@@ -18,8 +18,8 @@ pub struct Rom {
 }
 
 impl Rom {
-    pub fn new(raw: &Vec<u8>) -> Result<Rom, String> {
-        if &raw[0..4] != NES_TAG {
+    pub fn new(raw: &[u8]) -> Result<Rom, String> {
+        if raw[0..4] != NES_TAG {
             return Err("File is not in iNES format.".to_string());
         }
 
@@ -89,7 +89,7 @@ pub mod test {
                 header,
                 trainer: None,
                 prg_rom: vec![0; 2 * PRG_ROM_PAGE_SIZE],
-                chr_rom: vec![0; 1 * CHR_ROM_PAGE_SIZE],
+                chr_rom: vec![0; CHR_ROM_PAGE_SIZE],
             };
 
             test_rom.prg_rom[0..instructions.len()].copy_from_slice(&instructions);
@@ -142,8 +142,8 @@ pub mod test {
         let test_rom = TestRom {
             header,
             trainer: None,
-            prg_rom: vec![1; 2 * PRG_ROM_PAGE_SIZE],
-            chr_rom: vec![2; 1 * CHR_ROM_PAGE_SIZE],
+            prg_rom: vec![1; PRG_ROM_PAGE_SIZE * 2],
+            chr_rom: vec![2; CHR_ROM_PAGE_SIZE],
         };
 
         let raw = test_rom.dump();
@@ -151,8 +151,8 @@ pub mod test {
 
         assert_eq!(rom.screen_mirroring, Mirroring::Vertical);
         assert_eq!(rom.mapper, 0b0000_0011);
-        assert_eq!(rom.prg_rom.len(), 2 * PRG_ROM_PAGE_SIZE);
-        assert_eq!(rom.chr_rom.len(), 1 * CHR_ROM_PAGE_SIZE);
+        assert_eq!(rom.prg_rom.len(), PRG_ROM_PAGE_SIZE * 2);
+        assert_eq!(rom.chr_rom.len(), CHR_ROM_PAGE_SIZE);
         assert_eq!(rom.prg_rom[0], 1);
         assert_eq!(rom.chr_rom[0], 2);
     }
@@ -181,8 +181,8 @@ pub mod test {
         let test_rom = TestRom {
             header,
             trainer: Some(vec![0; 512]),
-            prg_rom: vec![1; 2 * PRG_ROM_PAGE_SIZE],
-            chr_rom: vec![2; 1 * CHR_ROM_PAGE_SIZE],
+            prg_rom: vec![1; PRG_ROM_PAGE_SIZE * 2],
+            chr_rom: vec![2; CHR_ROM_PAGE_SIZE],
         };
 
         let raw = test_rom.dump();
@@ -190,8 +190,8 @@ pub mod test {
 
         assert_eq!(rom.screen_mirroring, Mirroring::Horizontal);
         assert_eq!(rom.mapper, 0b0000_0011);
-        assert_eq!(rom.prg_rom.len(), 2 * PRG_ROM_PAGE_SIZE);
-        assert_eq!(rom.chr_rom.len(), 1 * CHR_ROM_PAGE_SIZE);
+        assert_eq!(rom.prg_rom.len(), PRG_ROM_PAGE_SIZE * 2);
+        assert_eq!(rom.chr_rom.len(), CHR_ROM_PAGE_SIZE);
         assert_eq!(rom.prg_rom[0], 1);
         assert_eq!(rom.chr_rom[0], 2);
     }
@@ -220,8 +220,8 @@ pub mod test {
         let test_rom = TestRom {
             header,
             trainer: None,
-            prg_rom: vec![1; 2 * PRG_ROM_PAGE_SIZE],
-            chr_rom: vec![2; 1 * CHR_ROM_PAGE_SIZE],
+            prg_rom: vec![1; PRG_ROM_PAGE_SIZE * 2],
+            chr_rom: vec![2; CHR_ROM_PAGE_SIZE],
         };
 
         let raw = test_rom.dump();

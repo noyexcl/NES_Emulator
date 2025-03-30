@@ -78,8 +78,8 @@ fn render_name_table(
 
             for x in (0..=7).rev() {
                 let value = (1 & upper_bits) << 1 | (1 & lower_bits);
-                upper_bits = upper_bits >> 1;
-                lower_bits = lower_bits >> 1;
+                upper_bits >>= 1;
+                lower_bits >>= 1;
                 let rgb = match value {
                     0 => palette::SYSTEM_PALLETE[ppu.palette_table[0] as usize],
                     1 => palette::SYSTEM_PALLETE[palette[1] as usize],
@@ -174,8 +174,8 @@ pub fn render(ppu: &NesPPU, frame: &mut Frame) {
             let mut upper_bits = tile[y + 8];
             'x: for x in (0..=7).rev() {
                 let value = (1 & upper_bits) << 1 | (1 & lower_bits);
-                upper_bits = upper_bits >> 1;
-                lower_bits = lower_bits >> 1;
+                upper_bits >>= 1;
+                lower_bits >>= 1;
 
                 let rgb = match value {
                     0 => continue 'x, // skip coloring the pixel because it's transparent

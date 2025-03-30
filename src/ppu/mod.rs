@@ -186,7 +186,7 @@ impl NesPPU {
                 self.status.set_sprite_zero_hit(true);
             }
 
-            self.cycles = self.cycles - 341;
+            self.cycles -= 341;
             self.scanline += 1;
 
             if self.scanline == 241 {
@@ -207,7 +207,7 @@ impl NesPPU {
             }
         }
 
-        return false;
+        false
     }
 
     fn is_sprite_0_hit(&self, cycle: usize) -> bool {

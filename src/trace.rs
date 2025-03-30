@@ -1,4 +1,4 @@
-use std::{arch::x86_64::CpuidResult, collections::HashMap};
+use std::collections::HashMap;
 
 use crate::{
     cpu::{AddressingMode, Mem, CPU},
@@ -7,11 +7,11 @@ use crate::{
 
 pub fn trace(cpu: &mut CPU) -> String {
     let mut result = String::new();
-    let ref opcode_table: HashMap<u8, &'static opcodes::OpCode> = *opcodes::OPCODES_MAP;
+    let opcode_table: &HashMap<u8, &'static opcodes::OpCode> = &opcodes::OPCODES_MAP;
     let code = cpu.bus.mem_read(cpu.program_counter);
     let opcode = opcode_table
         .get(&code)
-        .expect(&format!("OpCode {:x} is not recognized", code));
+        .unwrap_or_else(|| panic!("OpCode {:x} is not recognized", code));
 
     // program counter & opcode
     result.push_str(&format!("{:04X}  ", cpu.program_counter));
@@ -46,7 +46,7 @@ pub fn trace(cpu: &mut CPU) -> String {
         }
         AddressingMode::ZeroPage => {
             let addr = get_operand_address(cpu, &opcode.mode);
-            let value = cpu.bus.mem_read(addr as u16);
+            let value = cpu.bus.mem_read(addr);
 
             // mnemonic & addr with format
             result.push_str(&format!(
@@ -225,23 +225,19 @@ fn get_operand_address(cpu: &mut CPU, mode: &AddressingMode) -> u16 {
 
         AddressingMode::ZeroPage_X => {
             let pos = cpu.mem_read(counter);
-            let addr = pos.wrapping_add(cpu.register_x) as u16;
-            addr
+            pos.wrapping_add(cpu.register_x) as u16
         }
         AddressingMode::ZeroPage_Y => {
             let pos = cpu.mem_read(counter);
-            let addr = pos.wrapping_add(cpu.register_y) as u16;
-            addr
+            pos.wrapping_add(cpu.register_y) as u16
         }
         AddressingMode::Absolute_X => {
             let pos = cpu.mem_read(counter);
-            let addr = pos.wrapping_add(cpu.register_x) as u16;
-            addr
+            pos.wrapping_add(cpu.register_x) as u16
         }
         AddressingMode::Absolute_Y => {
             let base = cpu.mem_read_u16(counter);
-            let addr = base.wrapping_add(cpu.register_y as u16);
-            addr
+            base.wrapping_add(cpu.register_y as u16)
         }
         AddressingMode::Indirect => {
             // 6502にはページをまたぐIndirectにバグが存在している
@@ -263,7 +259,7 @@ fn get_operand_address(cpu: &mut CPU, mode: &AddressingMode) -> u16 {
         AddressingMode::Indirect_X => {
             let base = cpu.mem_read(counter);
 
-            let ptr: u8 = (base as u8).wrapping_add(cpu.register_x);
+            let ptr: u8 = base.wrapping_add(cpu.register_x);
             let lo = cpu.mem_read(ptr as u16);
             let hi = cpu.mem_read(ptr.wrapping_add(1) as u16);
             (hi as u16) << 8 | (lo as u16)
@@ -271,10 +267,9 @@ fn get_operand_address(cpu: &mut CPU, mode: &AddressingMode) -> u16 {
         AddressingMode::Indirect_Y => {
             let base: u8 = cpu.mem_read(counter);
             let lo = cpu.mem_read(base as u16);
-            let hi = cpu.mem_read((base as u8).wrapping_add(1) as u16);
+            let hi = cpu.mem_read(base.wrapping_add(1) as u16);
             let deref_base = (hi as u16) << 8 | (lo as u16);
-            let deref = deref_base.wrapping_add(cpu.register_y as u16);
-            deref
+            deref_base.wrapping_add(cpu.register_y as u16)
         }
         AddressingMode::NoneAddressing => {
             panic!("mode {:?} is not supported", mode);
@@ -284,8 +279,6 @@ fn get_operand_address(cpu: &mut CPU, mode: &AddressingMode) -> u16 {
 
 #[cfg(test)]
 mod test {
-    use std::result;
-
     use super::*;
     use crate::bus::Bus;
     use crate::rom::test::TestRom;
@@ -332,7 +325,7 @@ mod test {
 
         //data
         bus.mem_write(0x33, 00);
-        bus.mem_write(0x34, 04);
+        bus.mem_write(0x34, 4);
 
         //target cell
         bus.mem_write(0x400, 0xAA);

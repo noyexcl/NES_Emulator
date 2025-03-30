@@ -26,11 +26,7 @@ pub struct Status {
 }
 
 impl Status {
-    pub fn new() -> Self {
-        Status::default()
-    }
-
-    pub fn to_u8(&self) -> u8 {
+    pub fn to_u8(self) -> u8 {
         (self.negative_flag as u8) << 7
             | (self.overflow_flag as u8) << 6
             | 1 << 5
@@ -76,7 +72,7 @@ pub trait Mem {
     fn mem_read_u16(&mut self, pos: u16) -> u16 {
         let lo = self.mem_read(pos) as u16;
         let hi = self.mem_read(pos + 1) as u16;
-        (hi << 8) | lo as u16
+        (hi << 8) | lo
     }
 
     fn mem_write_u16(&mut self, pos: u16, data: u16) {
@@ -258,7 +254,7 @@ impl<'a> CPU<'a> {
         let (addr, extra_cycle) = self.get_operand_address(mode);
         let value = self.mem_read(addr);
 
-        self.register_a = self.register_a | value;
+        self.register_a |= value;
         self.update_zero_and_negative_flags(self.register_a);
 
         extra_cycle as u8
@@ -377,7 +373,7 @@ impl<'a> CPU<'a> {
 
     fn asl_accumulator(&mut self) {
         let bit7 = self.register_a & 0b1000_0000 != 0;
-        self.register_a = self.register_a << 1;
+        self.register_a <<= 1;
         self.status.carry_flag = bit7;
         self.update_zero_and_negative_flags(self.register_a);
     }
@@ -395,7 +391,7 @@ impl<'a> CPU<'a> {
 
     fn lsr_accumulator(&mut self) {
         let bit0 = self.register_a & 0b0000_0001 != 0;
-        self.register_a = self.register_a >> 1;
+        self.register_a >>= 1;
         self.status.carry_flag = bit0;
         self.update_zero_and_negative_flags(self.register_a);
     }
@@ -457,7 +453,7 @@ impl<'a> CPU<'a> {
 
         self.program_counter = addr;
 
-        return extra_cycles;
+        extra_cycles
     }
 
     fn jsr(&mut self, mode: &AddressingMode) {
@@ -499,17 +495,8 @@ impl<'a> CPU<'a> {
     }
 
     fn update_zero_and_negative_flags(&mut self, result: u8) {
-        if result == 0 {
-            self.status.zero_flag = true;
-        } else {
-            self.status.zero_flag = false;
-        }
-
-        if result & 0b1000_0000 != 0 {
-            self.status.negative_flag = true;
-        } else {
-            self.status.negative_flag = false;
-        }
+        self.status.zero_flag = result == 0;
+        self.status.negative_flag = result & 0b1000_0000 != 0;
     }
 
     fn stack_push(&mut self, data: u8) {
@@ -550,7 +537,7 @@ impl<'a> CPU<'a> {
     }
 
     pub fn run_with_callback(&mut self, mut callback: impl FnMut(&mut CPU)) {
-        let ref opcode_table: HashMap<u8, &'static opcodes::OpCode> = *opcodes::OPCODES_MAP;
+        let opcode_table: &HashMap<u8, &'static opcodes::OpCode> = &opcodes::OPCODES_MAP;
 
         loop {
             if let Some(_nmi) = self.bus.poll_nmi_status() {
@@ -562,7 +549,7 @@ impl<'a> CPU<'a> {
             let code = self.mem_read(self.program_counter);
             let opcode = opcode_table
                 .get(&code)
-                .expect(&format!("OpCode {:x} is not recognized", code));
+                .unwrap_or_else(|| panic!("OpCode {:x} is not recognized", code));
             let mut extra_cycles = 0;
 
             self.log
@@ -821,7 +808,7 @@ impl<'a> CPU<'a> {
 
     fn interrupt(&mut self, interrupt: interrupt::Interrupt) {
         self.stack_push_u16(self.program_counter);
-        let mut flag = self.status.clone();
+        let mut flag = self.status;
         flag.break_command = interrupt.b_flag_mask & 0b0001_0000 != 0;
 
         self.stack_push(flag.to_u8());
@@ -878,7 +865,7 @@ impl<'a> CPU<'a> {
             AddressingMode::Indirect_X => {
                 let base = self.mem_read(self.program_counter);
 
-                let ptr: u8 = (base as u8).wrapping_add(self.register_x);
+                let ptr: u8 = base.wrapping_add(self.register_x);
                 let lo = self.mem_read(ptr as u16);
                 let hi = self.mem_read(ptr.wrapping_add(1) as u16);
                 ((hi as u16) << 8 | (lo as u16), false)
@@ -886,7 +873,7 @@ impl<'a> CPU<'a> {
             AddressingMode::Indirect_Y => {
                 let base: u8 = self.mem_read(self.program_counter);
                 let lo = self.mem_read(base as u16);
-                let hi = self.mem_read((base as u8).wrapping_add(1) as u16);
+                let hi = self.mem_read(base.wrapping_add(1) as u16);
                 let deref_base = (hi as u16) << 8 | (lo as u16);
                 let deref = deref_base.wrapping_add(self.register_y as u16);
                 (deref, page_crossed(deref, deref_base))
@@ -1010,9 +997,9 @@ mod test {
         cpu.run();
 
         assert_eq!(cpu.register_a, 0x84);
-        assert_eq!(cpu.status.negative_flag, true);
-        assert_eq!(cpu.status.overflow_flag, false);
-        assert_eq!(cpu.status.carry_flag, true);
+        assert!(cpu.status.negative_flag);
+        assert!(!cpu.status.overflow_flag);
+        assert!(cpu.status.carry_flag);
     }
 
     #[test]
@@ -1023,9 +1010,9 @@ mod test {
         cpu.run();
 
         assert_eq!(cpu.register_a, 0xa0);
-        assert_eq!(cpu.status.negative_flag, true);
-        assert_eq!(cpu.status.overflow_flag, true);
-        assert_eq!(cpu.status.carry_flag, false);
+        assert!(cpu.status.negative_flag);
+        assert!(cpu.status.overflow_flag);
+        assert!(!cpu.status.carry_flag);
     }
 
     #[test]
@@ -1036,9 +1023,9 @@ mod test {
         cpu.run();
 
         assert_eq!(cpu.register_a, 0x60);
-        assert_eq!(cpu.status.negative_flag, false);
-        assert_eq!(cpu.status.overflow_flag, true);
-        assert_eq!(cpu.status.carry_flag, true);
+        assert!(!cpu.status.negative_flag);
+        assert!(cpu.status.overflow_flag);
+        assert!(cpu.status.carry_flag);
     }
 
     #[test]
@@ -1050,9 +1037,9 @@ mod test {
         cpu.run();
 
         assert_eq!(cpu.register_a, 0xff);
-        assert_eq!(cpu.status.negative_flag, true);
-        assert_eq!(cpu.status.overflow_flag, true);
-        assert_eq!(cpu.status.carry_flag, false);
+        assert!(cpu.status.negative_flag);
+        assert!(cpu.status.overflow_flag);
+        assert!(!cpu.status.carry_flag);
     }
 
     #[test]
@@ -1065,9 +1052,9 @@ mod test {
         cpu.run();
 
         assert_eq!(cpu.register_a, 0x61);
-        assert_eq!(cpu.status.negative_flag, false);
-        assert_eq!(cpu.status.overflow_flag, false);
-        assert_eq!(cpu.status.carry_flag, false);
+        assert!(!cpu.status.negative_flag);
+        assert!(!cpu.status.overflow_flag);
+        assert!(!cpu.status.carry_flag);
     }
 
     #[test]
@@ -1078,9 +1065,9 @@ mod test {
         cpu.run();
 
         assert_eq!(cpu.register_a, 0x5f);
-        assert_eq!(cpu.status.negative_flag, false);
-        assert_eq!(cpu.status.overflow_flag, false);
-        assert_eq!(cpu.status.carry_flag, false);
+        assert!(!cpu.status.negative_flag);
+        assert!(!cpu.status.overflow_flag);
+        assert!(!cpu.status.carry_flag);
     }
 
     #[test]
@@ -1091,9 +1078,9 @@ mod test {
         cpu.run();
 
         assert_eq!(cpu.register_a, 0x9f);
-        assert_eq!(cpu.status.negative_flag, true);
-        assert_eq!(cpu.status.overflow_flag, true);
-        assert_eq!(cpu.status.carry_flag, false);
+        assert!(cpu.status.negative_flag);
+        assert!(cpu.status.overflow_flag);
+        assert!(!cpu.status.carry_flag);
     }
 
     #[test]
@@ -1104,9 +1091,9 @@ mod test {
         cpu.run();
 
         assert_eq!(cpu.register_a, 0x5f);
-        assert_eq!(cpu.status.negative_flag, false);
-        assert_eq!(cpu.status.overflow_flag, true);
-        assert_eq!(cpu.status.carry_flag, true);
+        assert!(!cpu.status.negative_flag);
+        assert!(cpu.status.overflow_flag);
+        assert!(cpu.status.carry_flag);
     }
 
     #[test]
@@ -1134,9 +1121,9 @@ mod test {
         cpu.run();
 
         assert_eq!(cpu.register_a, 0xa0);
-        assert_eq!(cpu.status.negative_flag, true);
-        assert_eq!(cpu.status.zero_flag, false);
-        assert_eq!(cpu.status.carry_flag, false);
+        assert!(cpu.status.negative_flag);
+        assert!(!cpu.status.zero_flag);
+        assert!(!cpu.status.carry_flag);
 
         let test_rom = TestRom::create_test_rom(vec![0xa9, 0xf0, 0x0a, 0x00]);
         let mut cpu = CPU::new(Bus::new(test_rom, |_, _| {}));
@@ -1144,9 +1131,9 @@ mod test {
         cpu.run();
 
         assert_eq!(cpu.register_a, 0xe0);
-        assert_eq!(cpu.status.negative_flag, true);
-        assert_eq!(cpu.status.zero_flag, false);
-        assert_eq!(cpu.status.carry_flag, true);
+        assert!(cpu.status.negative_flag);
+        assert!(!cpu.status.zero_flag);
+        assert!(cpu.status.carry_flag);
     }
 
     #[test]
@@ -1158,9 +1145,9 @@ mod test {
         cpu.run();
 
         assert_eq!(cpu.mem_read(0xc0), 0b0101_0100);
-        assert_eq!(cpu.status.negative_flag, false);
-        assert_eq!(cpu.status.zero_flag, false);
-        assert_eq!(cpu.status.carry_flag, true);
+        assert!(!cpu.status.negative_flag);
+        assert!(!cpu.status.zero_flag);
+        assert!(cpu.status.carry_flag);
     }
 
     #[test]
@@ -1223,9 +1210,9 @@ mod test {
         cpu.reset();
         cpu.run();
 
-        assert_eq!(cpu.status.zero_flag, false);
-        assert_eq!(cpu.status.overflow_flag, false);
-        assert_eq!(cpu.status.negative_flag, true);
+        assert!(!cpu.status.zero_flag);
+        assert!(!cpu.status.overflow_flag);
+        assert!(cpu.status.negative_flag);
     }
 
     #[test]
@@ -1245,9 +1232,9 @@ mod test {
         cpu.reset();
         cpu.run();
 
-        assert_eq!(cpu.status.zero_flag, true);
-        assert_eq!(cpu.status.overflow_flag, false);
-        assert_eq!(cpu.status.negative_flag, false);
+        assert!(cpu.status.zero_flag);
+        assert!(!cpu.status.overflow_flag);
+        assert!(!cpu.status.negative_flag);
     }
 
     #[test]
@@ -1302,9 +1289,9 @@ mod test {
         cpu.register_a = 0x51;
         cpu.run();
 
-        assert_eq!(cpu.status.carry_flag, true);
-        assert_eq!(cpu.status.zero_flag, true);
-        assert_eq!(cpu.status.negative_flag, false);
+        assert!(cpu.status.carry_flag);
+        assert!(cpu.status.zero_flag);
+        assert!(!cpu.status.negative_flag);
     }
 
     #[test]
@@ -1315,9 +1302,9 @@ mod test {
         cpu.register_x = 0x51;
         cpu.run();
 
-        assert_eq!(cpu.status.carry_flag, true);
-        assert_eq!(cpu.status.zero_flag, true);
-        assert_eq!(cpu.status.negative_flag, false);
+        assert!(cpu.status.carry_flag);
+        assert!(cpu.status.zero_flag);
+        assert!(!cpu.status.negative_flag);
     }
 
     #[test]
@@ -1328,9 +1315,9 @@ mod test {
         cpu.register_y = 0x51;
         cpu.run();
 
-        assert_eq!(cpu.status.carry_flag, true);
-        assert_eq!(cpu.status.zero_flag, true);
-        assert_eq!(cpu.status.negative_flag, false);
+        assert!(cpu.status.carry_flag);
+        assert!(cpu.status.zero_flag);
+        assert!(!cpu.status.negative_flag);
     }
 
     #[test]
@@ -1341,8 +1328,8 @@ mod test {
         cpu.run();
 
         assert_eq!(cpu.mem_read(0xc0), 0x50);
-        assert_eq!(cpu.status.negative_flag, false);
-        assert_eq!(cpu.status.zero_flag, false);
+        assert!(!cpu.status.negative_flag);
+        assert!(!cpu.status.zero_flag);
     }
 
     #[test]
@@ -1354,8 +1341,8 @@ mod test {
         cpu.run();
 
         assert_eq!(cpu.register_x, 0x50);
-        assert_eq!(cpu.status.negative_flag, false);
-        assert_eq!(cpu.status.zero_flag, false);
+        assert!(!cpu.status.negative_flag);
+        assert!(!cpu.status.zero_flag);
     }
 
     #[test]
@@ -1367,8 +1354,8 @@ mod test {
         cpu.run();
 
         assert_eq!(cpu.register_y, 0x50);
-        assert_eq!(cpu.status.negative_flag, false);
-        assert_eq!(cpu.status.zero_flag, false);
+        assert!(!cpu.status.negative_flag);
+        assert!(!cpu.status.zero_flag);
     }
 
     #[test]
@@ -1380,8 +1367,8 @@ mod test {
         cpu.run();
 
         assert_eq!(cpu.register_a, 0x00);
-        assert_eq!(cpu.status.negative_flag, false);
-        assert_eq!(cpu.status.zero_flag, true);
+        assert!(!cpu.status.negative_flag);
+        assert!(cpu.status.zero_flag);
     }
 
     #[test]
@@ -1392,8 +1379,8 @@ mod test {
         cpu.run();
 
         assert_eq!(cpu.mem_read(0xc0), 0x52);
-        assert_eq!(cpu.status.negative_flag, false);
-        assert_eq!(cpu.status.zero_flag, false);
+        assert!(!cpu.status.negative_flag);
+        assert!(!cpu.status.zero_flag);
     }
 
     #[test]
@@ -1405,8 +1392,8 @@ mod test {
         cpu.run();
 
         assert_eq!(cpu.register_y, 0x52);
-        assert_eq!(cpu.status.negative_flag, false);
-        assert_eq!(cpu.status.zero_flag, false);
+        assert!(!cpu.status.negative_flag);
+        assert!(!cpu.status.zero_flag);
     }
 
     #[test]
@@ -1477,7 +1464,7 @@ mod test {
         cpu.run();
 
         assert_eq!(cpu.register_a, 0b0010_1010);
-        assert_eq!(cpu.status.carry_flag, true);
+        assert!(cpu.status.carry_flag);
     }
 
     #[test]
@@ -1530,7 +1517,7 @@ mod test {
         cpu.reset();
         cpu.run();
 
-        assert_eq!(cpu.status.carry_flag, false);
+        assert!(!cpu.status.carry_flag);
     }
 
     #[test]
@@ -1542,9 +1529,9 @@ mod test {
         cpu.run();
 
         assert_eq!(cpu.register_a, 0b0101_0101);
-        assert_eq!(cpu.status.carry_flag, true);
-        assert_eq!(cpu.status.negative_flag, false);
-        assert_eq!(cpu.status.zero_flag, false);
+        assert!(cpu.status.carry_flag);
+        assert!(!cpu.status.negative_flag);
+        assert!(!cpu.status.zero_flag);
     }
 
     #[test]
@@ -1557,9 +1544,9 @@ mod test {
         cpu.run();
 
         assert_eq!(cpu.mem_read(0xc0), 0b0101_0101);
-        assert_eq!(cpu.status.carry_flag, true);
-        assert_eq!(cpu.status.negative_flag, false);
-        assert_eq!(cpu.status.zero_flag, false);
+        assert!(cpu.status.carry_flag);
+        assert!(!cpu.status.negative_flag);
+        assert!(!cpu.status.zero_flag);
     }
 
     #[test]
@@ -1571,9 +1558,9 @@ mod test {
         cpu.run();
 
         assert_eq!(cpu.register_a, 0b1101_0101);
-        assert_eq!(cpu.status.carry_flag, false);
-        assert_eq!(cpu.status.negative_flag, true);
-        assert_eq!(cpu.status.zero_flag, false);
+        assert!(!cpu.status.carry_flag);
+        assert!(cpu.status.negative_flag);
+        assert!(!cpu.status.zero_flag);
     }
 
     #[test]
@@ -1586,9 +1573,9 @@ mod test {
         cpu.run();
 
         assert_eq!(cpu.mem_read(0xc0), 0b1101_0101);
-        assert_eq!(cpu.status.carry_flag, false);
-        assert_eq!(cpu.status.negative_flag, true);
-        assert_eq!(cpu.status.zero_flag, false);
+        assert!(!cpu.status.carry_flag);
+        assert!(cpu.status.negative_flag);
+        assert!(!cpu.status.zero_flag);
     }
 
     #[test]

@@ -75,7 +75,7 @@ impl<'call> Bus<'call> {
         addr -= 0x8000;
         if self.prg_rom.len() == 0x4000 && addr >= 0x4000 {
             // Mirror if needed
-            addr = addr % 0x4000;
+            addr %= 0x4000;
         }
 
         self.prg_rom[addr as usize]
