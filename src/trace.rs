@@ -206,9 +206,9 @@ pub fn trace(cpu: &mut CPU) -> String {
     ));
 
     result.push_str(&format!(
-        "PPU:{:3},{:3},CYC:{:5}",
-        cpu.bus.cycles,
-        cpu.bus.cycles * 3,
+        "PPU:{:3},{:3} CYC:{}",
+        (cpu.bus.cycles * 3) / 341,
+        (cpu.bus.cycles * 3) % 341,
         cpu.bus.cycles,
     ));
 
@@ -279,9 +279,13 @@ fn get_operand_address(cpu: &mut CPU, mode: &AddressingMode) -> u16 {
 
 #[cfg(test)]
 mod test {
+    use std::fs;
+
     use super::*;
     use crate::bus::Bus;
+    use crate::cpu;
     use crate::rom::test::TestRom;
+    use crate::rom::Rom;
 
     #[test]
     fn test_format_trace() {
@@ -303,15 +307,15 @@ mod test {
             result.push(trace(cpu));
         });
         assert_eq!(
-            "0064  A2 01     LDX #$01                        A:01 X:02 Y:03 P:24 SP:FD",
+            "0064  A2 01     LDX #$01                        A:01 X:02 Y:03 P:24 SP:FD PPU:  0, 21,CYC:    7",
             result[0]
         );
         assert_eq!(
-            "0066  CA        DEX                             A:01 X:01 Y:03 P:24 SP:FD",
+            "0066  CA        DEX                             A:01 X:01 Y:03 P:24 SP:FD PPU:  0, 27,CYC:    9",
             result[1]
         );
         assert_eq!(
-            "0067  88        DEY                             A:01 X:00 Y:03 P:26 SP:FD",
+            "0067  88        DEY                             A:01 X:00 Y:03 P:26 SP:FD PPU:  0, 33,CYC:   11",
             result[2]
         );
     }
@@ -339,7 +343,7 @@ mod test {
             result.push(trace(cpu));
         });
         assert_eq!(
-            "0064  11 33     ORA ($33),Y = 0400 @ 0400 = AA  A:00 X:00 Y:00 P:24 SP:FD",
+            "0064  11 33     ORA ($33),Y = 0400 @ 0400 = AA  A:00 X:00 Y:00 P:24 SP:FD PPU:  0, 21,CYC:    7",
             result[0]
         );
     }
@@ -365,7 +369,7 @@ mod test {
         });
 
         assert_eq!(
-            "0064  B5 33     LDA $33,X @ 34 = AA             A:00 X:01 Y:00 P:24 SP:FD",
+            "0064  B5 33     LDA $33,X @ 34 = AA             A:00 X:01 Y:00 P:24 SP:FD PPU:  0, 21,CYC:    7",
             result[0]
         );
     }
@@ -390,7 +394,7 @@ mod test {
         });
 
         assert_eq!(
-            "0064  B6 33     LDX $33,Y @ 34 = AA             A:00 X:00 Y:01 P:24 SP:FD",
+            "0064  B6 33     LDX $33,Y @ 34 = AA             A:00 X:00 Y:01 P:24 SP:FD PPU:  0, 21,CYC:    7",
             result[0]
         );
     }

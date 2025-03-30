@@ -443,17 +443,9 @@ impl<'a> CPU<'a> {
         self.update_zero_and_negative_flags(result);
     }
 
-    fn jmp(&mut self, mode: &AddressingMode) -> u8 {
-        let mut extra_cycles = 0;
+    fn jmp(&mut self, mode: &AddressingMode) {
         let (addr, _) = self.get_operand_address(mode);
-
-        if self.program_counter & 0xFF00 != addr & 0xFF00 {
-            extra_cycles += 2;
-        }
-
         self.program_counter = addr;
-
-        extra_cycles
     }
 
     fn jsr(&mut self, mode: &AddressingMode) {
@@ -477,8 +469,8 @@ impl<'a> CPU<'a> {
                 .wrapping_add(1)
                 .wrapping_add(offset as u16);
 
-            if self.program_counter & 0xFF00 != jump_addr & 0xFF00 {
-                addnl_cycles += 2;
+            if self.program_counter.wrapping_add(1) & 0xFF00 != jump_addr & 0xFF00 {
+                addnl_cycles += 1;
             }
 
             self.program_counter = jump_addr;
@@ -530,6 +522,7 @@ impl<'a> CPU<'a> {
         self.status = Status::from_u8(0b0010_0100);
         self.stack_pointer = STACK_RESET;
         self.program_counter = self.mem_read_u16(0xFFFC);
+        self.bus.tick(7); // 7 cycles for reset
     }
 
     pub fn run(&mut self) {
@@ -712,7 +705,7 @@ impl<'a> CPU<'a> {
 
                 // JMP
                 0x4c | 0x6c => {
-                    extra_cycles = self.jmp(&opcode.mode);
+                    self.jmp(&opcode.mode);
                 }
 
                 // JSR

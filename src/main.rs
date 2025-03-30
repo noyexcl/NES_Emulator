@@ -127,7 +127,7 @@ fn main() {
     key_map.insert(Keycode::S, JoypadButton::BUTTON_B);
 
     //load the game
-    let raw = std::fs::read("mario.nes").unwrap();
+    let raw = std::fs::read("nestest.nes").unwrap();
     let rom = Rom::new(&raw).unwrap();
 
     let mut frame = Frame::new();
@@ -163,9 +163,21 @@ fn main() {
         }
     });
 
+    let mut file = File::create("nestest.log").unwrap();
+    let raw = std::fs::read("nestest.nes").unwrap();
+    let rom = Rom::new(&raw).unwrap();
+    let bus = Bus::new(rom, |_, _| {});
+
     let mut cpu = CPU::new(bus);
     cpu.reset();
-    cpu.run();
+    cpu.program_counter = 0xc000;
+
+    cpu.run_with_callback(move |cpu| {
+        let log = trace(cpu) + "\n";
+        // Write log into nex.log File
+        file.write_all(log.as_bytes()).unwrap();
+        file.flush().unwrap();
+    })
 
     /*
     let mut cpu = CPU::new(Bus::new(rom));
