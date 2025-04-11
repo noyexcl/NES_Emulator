@@ -1,0 +1,157 @@
+mod envelope;
+mod filter;
+mod frame_counter;
+mod length_counter;
+mod pulse;
+mod sequencer;
+mod sweep;
+mod timer;
+
+use filter::FirstOrderFilter;
+use frame_counter::{FrameCounter, FrameType};
+use pulse::Pulse;
+
+pub struct APU {
+    buffer: Vec<i16>,
+    pulse1: Pulse,
+    frame_counter: FrameCounter,
+    filters: [FirstOrderFilter; 3],
+    cycles: usize,
+}
+
+impl APU {
+    pub fn new() -> Self {
+        Self {
+            buffer: vec![],
+            pulse1: Pulse::new(true),
+            frame_counter: FrameCounter::new(),
+            filters: [
+                FirstOrderFilter::high_pass(44100.0, 90.0),
+                FirstOrderFilter::high_pass(44100.0, 440.0),
+                FirstOrderFilter::low_pass(44100.0, 14_000.0),
+            ],
+            cycles: 0,
+        }
+    }
+
+    pub fn tick(&mut self) {
+        self.cycles += 1;
+
+        if self.cycles % 2 == 1 {
+            self.pulse1.tick_timer();
+        }
+
+        match self.frame_counter.tick() {
+            FrameType::Quarter => {
+                self.pulse1.clock_quarter_frame();
+            }
+            FrameType::Half => {
+                self.pulse1.clock_half_frame();
+            }
+            FrameType::None => (),
+        }
+
+        // We need 730 stereo audio samples per frame for 60 fps.
+        // Each frame lasts a minimum of 29,779 CPU cycles. This
+        // works out to around 40 CPU cycles per sample.
+        if self.cycles % 40 == 0 {
+            let s = self.sample();
+            self.buffer.push(s);
+            self.buffer.push(s);
+        }
+    }
+
+    fn clock_quarter_frame(&mut self) {
+        self.pulse1.clock_quarter_frame();
+    }
+
+    fn clock_half_frame(&mut self) {
+        self.pulse1.clock_half_frame();
+    }
+
+    pub fn sample(&mut self) -> i16 {
+        let pulse1 = self.pulse1.sample() as f64;
+        let pulse2 = 0 as f64;
+        let t = 0 as f64;
+        let n = 0 as f64;
+        let d = 0 as f64;
+
+        let pulse_out = 95.88 / ((8218.0 / (pulse1 + pulse2)) + 100.0);
+        let tnd_out = 159.79 / (1.0 / (t / 8227.0 + n / 12241.0 + d / 22638.0) + 100.0);
+
+        let mut output = (pulse_out + tnd_out) * 65535.0;
+
+        for i in 0..3 {
+            output = self.filters[i].tick(output);
+        }
+
+        // The final range is -32767 to +32767
+        output as i16
+    }
+
+    pub fn write_register(&mut self, addr: u16, val: u8) {
+        match addr {
+            0x4000 => self.pulse1.write_main_register(val),
+            0x4001 => self.pulse1.write_sweep_register(val),
+            0x4002 => self.pulse1.write_timer_lo(val),
+            0x4003 => self.pulse1.write_timer_hi_and_length(val),
+            0x4004..=0x4007 => (), // Todo: Pulse2,
+            0x4008..=0x400B => (), // Todo: Triangle
+            0x400C..=0x400F => (), // Todo: Noise
+            0x4010..=0x4013 => (), // Todo: DMC
+            0x4015 => {
+                // ---D NT21
+                // Enable DMC (D), noise (N), triangle (T), and pulse channels (2/1)
+                self.pulse1.set_enabled(val & 0b0000_0001 != 1);
+                // TODO: enable/disable other channels
+            }
+            0x4017 => {
+                self.frame_counter.write_register(val);
+
+                // Writing to $4017 with bit 7 set ($80) will immediately clock all of its controlled units at the beginning of the 5-step sequence
+                // with bit 7 clear, only the sequence is reset without clocking any of its units.
+                if val & 0b1000_0000 != 0 {
+                    self.clock_half_frame();
+                }
+            }
+            _ => panic!(
+                "writing to unexcepted address {:#x} (value: {:#b})",
+                addr, val
+            ),
+        }
+    }
+
+    pub fn read_register(&mut self, addr: u16) -> u8 {
+        match addr {
+            0x4015 => {
+                // IF-D NT21
+                // I: DMC interrupt F: Frame interrupt D: DMC active NT21: Length counter > 0
+                let result = 0 << 7
+                    | (self.frame_counter.irq_flag as u8) << 6
+                    | 0 << 4
+                    | 0 << 3
+                    | 0 << 2
+                    | 0 << 1
+                    | self.pulse1.is_playing() as u8;
+
+                self.frame_counter.irq_flag = false;
+
+                result
+            }
+            _ => panic!("reading from unexcepted address {:#x}", addr),
+        }
+    }
+
+    pub fn output(&mut self) -> Sound {
+        let s = Sound {
+            buffer: self.buffer.clone(),
+        };
+
+        self.buffer.clear();
+        s
+    }
+}
+
+pub struct Sound {
+    pub buffer: Vec<i16>,
+}

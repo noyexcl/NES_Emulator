@@ -289,7 +289,7 @@ mod test {
 
     #[test]
     fn test_format_trace() {
-        let mut bus = Bus::new(TestRom::create_test_rom(vec![]), |_, _| {});
+        let mut bus = Bus::new(TestRom::create_test_rom(vec![]), |_, _, _| {});
         bus.mem_write(100, 0xa2);
         bus.mem_write(101, 0x01);
         bus.mem_write(102, 0xca);
@@ -307,22 +307,22 @@ mod test {
             result.push(trace(cpu));
         });
         assert_eq!(
-            "0064  A2 01     LDX #$01                        A:01 X:02 Y:03 P:24 SP:FD PPU:  0, 21,CYC:    7",
+            "0064  A2 01     LDX #$01                        A:01 X:02 Y:03 P:24 SP:FD PPU:  0, 21 CYC:7",
             result[0]
         );
         assert_eq!(
-            "0066  CA        DEX                             A:01 X:01 Y:03 P:24 SP:FD PPU:  0, 27,CYC:    9",
+            "0066  CA        DEX                             A:01 X:01 Y:03 P:24 SP:FD PPU:  0, 27 CYC:9",
             result[1]
         );
         assert_eq!(
-            "0067  88        DEY                             A:01 X:00 Y:03 P:26 SP:FD PPU:  0, 33,CYC:   11",
+            "0067  88        DEY                             A:01 X:00 Y:03 P:26 SP:FD PPU:  0, 33 CYC:11",
             result[2]
         );
     }
 
     #[test]
     fn test_format_mem_access() {
-        let mut bus = Bus::new(TestRom::create_test_rom(vec![]), |_, _| {});
+        let mut bus = Bus::new(TestRom::create_test_rom(vec![]), |_, _, _| {});
         // ORA ($33), Y
         bus.mem_write(100, 0x11);
         bus.mem_write(101, 0x33);
@@ -343,14 +343,14 @@ mod test {
             result.push(trace(cpu));
         });
         assert_eq!(
-            "0064  11 33     ORA ($33),Y = 0400 @ 0400 = AA  A:00 X:00 Y:00 P:24 SP:FD PPU:  0, 21,CYC:    7",
+            "0064  11 33     ORA ($33),Y = 0400 @ 0400 = AA  A:00 X:00 Y:00 P:24 SP:FD PPU:  0, 21 CYC:7",
             result[0]
         );
     }
 
     #[test]
     fn test_zerox_format() {
-        let mut bus = Bus::new(TestRom::create_test_rom(vec![]), |_, _| {});
+        let mut bus = Bus::new(TestRom::create_test_rom(vec![]), |_, _, _| {});
         // ORA ($33), Y
         bus.mem_write(100, 0xb5);
         bus.mem_write(101, 0x33);
@@ -369,14 +369,14 @@ mod test {
         });
 
         assert_eq!(
-            "0064  B5 33     LDA $33,X @ 34 = AA             A:00 X:01 Y:00 P:24 SP:FD PPU:  0, 21,CYC:    7",
+            "0064  B5 33     LDA $33,X @ 34 = AA             A:00 X:01 Y:00 P:24 SP:FD PPU:  0, 21 CYC:7",
             result[0]
         );
     }
 
     #[test]
     fn test_zeroy_format() {
-        let mut bus = Bus::new(TestRom::create_test_rom(vec![]), |_, _| {});
+        let mut bus = Bus::new(TestRom::create_test_rom(vec![]), |_, _, _| {});
         bus.mem_write(100, 0xb6);
         bus.mem_write(101, 0x33);
 
@@ -394,7 +394,7 @@ mod test {
         });
 
         assert_eq!(
-            "0064  B6 33     LDX $33,Y @ 34 = AA             A:00 X:00 Y:01 P:24 SP:FD PPU:  0, 21,CYC:    7",
+            "0064  B6 33     LDX $33,Y @ 34 = AA             A:00 X:00 Y:01 P:24 SP:FD PPU:  0, 21 CYC:7",
             result[0]
         );
     }
