@@ -53,6 +53,7 @@ impl Rect {
     }
 }
 
+#[allow(clippy::needless_range_loop)]
 fn render_name_table(
     ppu: &NesPPU,
     frame: &mut Frame,

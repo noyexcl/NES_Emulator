@@ -54,9 +54,11 @@ impl Rom {
     }
 }
 
+#[cfg(test)]
 pub mod test {
     use super::*;
 
+    #[allow(unused)]
     pub struct TestRom {
         header: Vec<u8>,
         trainer: Option<Vec<u8>>,
@@ -64,6 +66,7 @@ pub mod test {
         chr_rom: Vec<u8>,
     }
 
+    #[allow(unused)]
     impl TestRom {
         pub fn create_test_rom(instructions: Vec<u8>) -> Rom {
             let header = vec![

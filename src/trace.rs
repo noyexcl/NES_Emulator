@@ -279,13 +279,9 @@ fn get_operand_address(cpu: &mut CPU, mode: &AddressingMode) -> u16 {
 
 #[cfg(test)]
 mod test {
-    use std::fs;
-
     use super::*;
     use crate::bus::Bus;
-    use crate::cpu;
     use crate::rom::test::TestRom;
-    use crate::rom::Rom;
 
     #[test]
     fn test_format_trace() {

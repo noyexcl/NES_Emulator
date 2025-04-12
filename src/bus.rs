@@ -28,6 +28,7 @@ use crate::{apu::APU, cpu::Mem, joypad::Joypad, ppu::NesPPU, rom::Rom};
 // | Zero Page     |       |               |
 // |_______________| $0000 |_______________|
 
+#[allow(clippy::type_complexity)]
 pub struct Bus<'call> {
     cpu_vram: [u8; 2048],
     prg_rom: Vec<u8>,
