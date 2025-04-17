@@ -57,7 +57,7 @@ impl Pulse {
     }
 
     pub fn sample(&self) -> u8 {
-        if !self.sweep.mute && self.length_counter.is_playing() {
+        if !self.sweep.mute && self.length_counter.is_active() {
             DUTY_TABLE[self.duty as usize][self.sequencer.current_step]
                 * self.envelop.current_volume()
         } else {
@@ -70,7 +70,7 @@ impl Pulse {
     }
 
     pub fn is_playing(&self) -> bool {
-        self.length_counter.is_playing()
+        self.length_counter.is_active()
     }
 
     pub fn write_main_register(&mut self, value: u8) {
@@ -156,6 +156,6 @@ mod tests {
         p.write_timer_hi_and_length(0b0000_0111);
 
         assert_eq!(p.timer.period, 0b111_1010_1010);
-        assert!(p.length_counter.is_playing());
+        assert!(p.length_counter.is_active());
     }
 }

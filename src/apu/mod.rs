@@ -2,18 +2,24 @@ mod envelope;
 mod filter;
 mod frame_counter;
 mod length_counter;
+mod linear_counter;
 mod pulse;
 mod sequencer;
 mod sweep;
 mod timer;
+mod triangle;
 
 use filter::FirstOrderFilter;
 use frame_counter::{FrameCounter, FrameType};
 use pulse::Pulse;
+use triangle::Triangle;
 
+#[allow(clippy::upper_case_acronyms)]
 pub struct APU {
     buffer: Vec<i16>,
     pulse1: Pulse,
+    pulse2: Pulse,
+    triangle: Triangle,
     frame_counter: FrameCounter,
     filters: [FirstOrderFilter; 3],
     cycles: usize,
@@ -24,6 +30,8 @@ impl APU {
         Self {
             buffer: vec![],
             pulse1: Pulse::new(true),
+            pulse2: Pulse::new(false),
+            triangle: Triangle::new(),
             frame_counter: FrameCounter::new(),
             filters: [
                 FirstOrderFilter::high_pass(44100.0, 90.0),
@@ -37,16 +45,19 @@ impl APU {
     pub fn tick(&mut self) {
         self.cycles += 1;
 
+        self.triangle.clock();
+
         if self.cycles % 2 == 1 {
             self.pulse1.tick_timer();
+            self.pulse2.tick_timer();
         }
 
         match self.frame_counter.tick() {
             FrameType::Quarter => {
-                self.pulse1.clock_quarter_frame();
+                self.clock_quarter_frame();
             }
             FrameType::Half => {
-                self.pulse1.clock_half_frame();
+                self.clock_half_frame();
             }
             FrameType::None => (),
         }
@@ -63,16 +74,20 @@ impl APU {
 
     fn clock_quarter_frame(&mut self) {
         self.pulse1.clock_quarter_frame();
+        self.pulse2.clock_quarter_frame();
+        self.triangle.clock_quarter_frame();
     }
 
     fn clock_half_frame(&mut self) {
         self.pulse1.clock_half_frame();
+        self.pulse2.clock_half_frame();
+        self.triangle.clock_half_frame();
     }
 
     pub fn sample(&mut self) -> i16 {
         let pulse1 = self.pulse1.sample() as f64;
-        let pulse2 = 0 as f64;
-        let t = 0 as f64;
+        let pulse2 = self.pulse2.sample() as f64;
+        let t = self.triangle.sample() as f64;
         let n = 0 as f64;
         let d = 0 as f64;
 
@@ -95,15 +110,22 @@ impl APU {
             0x4001 => self.pulse1.write_sweep_register(val),
             0x4002 => self.pulse1.write_timer_lo(val),
             0x4003 => self.pulse1.write_timer_hi_and_length(val),
-            0x4004..=0x4007 => (), // Todo: Pulse2,
-            0x4008..=0x400B => (), // Todo: Triangle
+            0x4004 => self.pulse2.write_main_register(val),
+            0x4005 => self.pulse2.write_sweep_register(val),
+            0x4006 => self.pulse2.write_timer_lo(val),
+            0x4007 => self.pulse2.write_timer_hi_and_length(val),
+            0x4008 => self.triangle.write_linear_counter_setup(val),
+            0x4009 => (), // Unused, do nothing
+            0x400A => self.triangle.write_timer_lo(val),
+            0x400B => self.triangle.write_length_and_timer_hi(val),
             0x400C..=0x400F => (), // Todo: Noise
             0x4010..=0x4013 => (), // Todo: DMC
             0x4015 => {
                 // ---D NT21
                 // Enable DMC (D), noise (N), triangle (T), and pulse channels (2/1)
-                self.pulse1.set_enabled(val & 0b0000_0001 != 1);
-                // TODO: enable/disable other channels
+                self.pulse1.set_enabled(val & 0b0000_0001 != 0);
+                self.pulse2.set_enabled(val & 0b0000_0010 != 0);
+                self.triangle.set_enabled(val & 0b0000_0100 != 0);
             }
             0x4017 => {
                 self.frame_counter.write_register(val);
@@ -130,8 +152,8 @@ impl APU {
                     | (self.frame_counter.irq_flag as u8) << 6
                     | 0 << 4
                     | 0 << 3
-                    | 0 << 2
-                    | 0 << 1
+                    | (self.triangle.is_playing() as u8) << 2
+                    | (self.pulse2.is_playing() as u8) << 1
                     | self.pulse1.is_playing() as u8;
 
                 self.frame_counter.irq_flag = false;

@@ -37,7 +37,7 @@ impl LengthCounter {
         self.counter = LENGTH_TABLE[length as usize];
     }
 
-    pub fn is_playing(&self) -> bool {
+    pub fn is_active(&self) -> bool {
         self.counter > 0
     }
 }
@@ -85,6 +85,6 @@ mod tests {
         l.enabled = true;
         l.clock();
 
-        assert!(!l.is_playing());
+        assert!(!l.is_active());
     }
 }

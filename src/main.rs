@@ -160,7 +160,7 @@ fn main() {
     key_map.insert(Keycode::S, JoypadButton::BUTTON_B);
 
     //load the game
-    let raw = std::fs::read("pacman.nes").unwrap();
+    let raw = std::fs::read("SNDTEST2.nes").unwrap();
     let rom = Rom::new(&raw).unwrap();
 
     let mut frame = Frame::new();
