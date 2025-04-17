@@ -3,6 +3,7 @@ mod filter;
 mod frame_counter;
 mod length_counter;
 mod linear_counter;
+mod noise;
 mod pulse;
 mod sequencer;
 mod sweep;
@@ -11,6 +12,7 @@ mod triangle;
 
 use filter::FirstOrderFilter;
 use frame_counter::{FrameCounter, FrameType};
+use noise::Noise;
 use pulse::Pulse;
 use triangle::Triangle;
 
@@ -20,6 +22,7 @@ pub struct APU {
     pulse1: Pulse,
     pulse2: Pulse,
     triangle: Triangle,
+    noise: Noise,
     frame_counter: FrameCounter,
     filters: [FirstOrderFilter; 3],
     cycles: usize,
@@ -32,6 +35,7 @@ impl APU {
             pulse1: Pulse::new(true),
             pulse2: Pulse::new(false),
             triangle: Triangle::new(),
+            noise: Noise::new(),
             frame_counter: FrameCounter::new(),
             filters: [
                 FirstOrderFilter::high_pass(44100.0, 90.0),
@@ -50,6 +54,7 @@ impl APU {
         if self.cycles % 2 == 1 {
             self.pulse1.tick_timer();
             self.pulse2.tick_timer();
+            self.noise.apu_tick();
         }
 
         match self.frame_counter.tick() {
@@ -76,19 +81,21 @@ impl APU {
         self.pulse1.clock_quarter_frame();
         self.pulse2.clock_quarter_frame();
         self.triangle.clock_quarter_frame();
+        self.noise.quarter_frame_clock();
     }
 
     fn clock_half_frame(&mut self) {
         self.pulse1.clock_half_frame();
         self.pulse2.clock_half_frame();
         self.triangle.clock_half_frame();
+        self.noise.half_frame_clock();
     }
 
     pub fn sample(&mut self) -> i16 {
         let pulse1 = self.pulse1.sample() as f64;
         let pulse2 = self.pulse2.sample() as f64;
         let t = self.triangle.sample() as f64;
-        let n = 0 as f64;
+        let n = self.noise.sample() as f64;
         let d = 0 as f64;
 
         let pulse_out = 95.88 / ((8218.0 / (pulse1 + pulse2)) + 100.0);
@@ -118,7 +125,10 @@ impl APU {
             0x4009 => (), // Unused, do nothing
             0x400A => self.triangle.write_timer_lo(val),
             0x400B => self.triangle.write_length_and_timer_hi(val),
-            0x400C..=0x400F => (), // Todo: Noise
+            0x400C => self.noise.write_main_register(val),
+            0x400D => (), // unused, do nothing
+            0x400E => self.noise.write_mode_period_register(val),
+            0x400F => self.noise.write_length_register(val),
             0x4010..=0x4013 => (), // Todo: DMC
             0x4015 => {
                 // ---D NT21
@@ -126,6 +136,7 @@ impl APU {
                 self.pulse1.set_enabled(val & 0b0000_0001 != 0);
                 self.pulse2.set_enabled(val & 0b0000_0010 != 0);
                 self.triangle.set_enabled(val & 0b0000_0100 != 0);
+                self.noise.set_enabled(val & 0b0000_1000 != 0);
             }
             0x4017 => {
                 self.frame_counter.write_register(val);
@@ -151,7 +162,7 @@ impl APU {
                 let result = 0 << 7
                     | (self.frame_counter.irq_flag as u8) << 6
                     | 0 << 4
-                    | 0 << 3
+                    | (self.noise.is_playin() as u8) << 3
                     | (self.triangle.is_playing() as u8) << 2
                     | (self.pulse2.is_playing() as u8) << 1
                     | self.pulse1.is_playing() as u8;
