@@ -1,3 +1,4 @@
+mod dmc;
 mod envelope;
 mod filter;
 mod frame_counter;
@@ -10,6 +11,7 @@ mod sweep;
 mod timer;
 mod triangle;
 
+use dmc::DMC;
 use filter::FirstOrderFilter;
 use frame_counter::{FrameCounter, FrameType};
 use noise::Noise;
@@ -23,19 +25,21 @@ pub struct APU {
     pulse2: Pulse,
     triangle: Triangle,
     noise: Noise,
+    dmc: DMC,
     frame_counter: FrameCounter,
     filters: [FirstOrderFilter; 3],
     cycles: usize,
 }
 
 impl APU {
-    pub fn new() -> Self {
+    pub fn new(prg_rom: Vec<u8>) -> Self {
         Self {
             buffer: vec![],
             pulse1: Pulse::new(true),
             pulse2: Pulse::new(false),
             triangle: Triangle::new(),
             noise: Noise::new(),
+            dmc: DMC::new(prg_rom),
             frame_counter: FrameCounter::new(),
             filters: [
                 FirstOrderFilter::high_pass(44100.0, 90.0),
@@ -55,6 +59,7 @@ impl APU {
             self.pulse1.tick_timer();
             self.pulse2.tick_timer();
             self.noise.apu_tick();
+            self.dmc.apu_tick();
         }
 
         match self.frame_counter.tick() {
@@ -96,7 +101,7 @@ impl APU {
         let pulse2 = self.pulse2.sample() as f64;
         let t = self.triangle.sample() as f64;
         let n = self.noise.sample() as f64;
-        let d = 0 as f64;
+        let d = self.dmc.sample() as f64;
 
         let pulse_out = 95.88 / ((8218.0 / (pulse1 + pulse2)) + 100.0);
         let tnd_out = 159.79 / (1.0 / (t / 8227.0 + n / 12241.0 + d / 22638.0) + 100.0);
@@ -129,7 +134,10 @@ impl APU {
             0x400D => (), // unused, do nothing
             0x400E => self.noise.write_mode_period_register(val),
             0x400F => self.noise.write_length_register(val),
-            0x4010..=0x4013 => (), // Todo: DMC
+            0x4010 => self.dmc.write_flags_rate(val),
+            0x4011 => self.dmc.write_direct_load(val),
+            0x4012 => self.dmc.write_sample_address(val),
+            0x4013 => self.dmc.write_sample_length(val),
             0x4015 => {
                 // ---D NT21
                 // Enable DMC (D), noise (N), triangle (T), and pulse channels (2/1)
@@ -137,6 +145,7 @@ impl APU {
                 self.pulse2.set_enabled(val & 0b0000_0010 != 0);
                 self.triangle.set_enabled(val & 0b0000_0100 != 0);
                 self.noise.set_enabled(val & 0b0000_1000 != 0);
+                self.dmc.set_enabled(val & 0b0001_0000 != 0);
             }
             0x4017 => {
                 self.frame_counter.write_register(val);
@@ -159,9 +168,9 @@ impl APU {
             0x4015 => {
                 // IF-D NT21
                 // I: DMC interrupt F: Frame interrupt D: DMC active NT21: Length counter > 0
-                let result = 0 << 7
+                let result = (self.dmc.irq_flag as u8) << 7
                     | (self.frame_counter.irq_flag as u8) << 6
-                    | 0 << 4
+                    | (self.dmc.is_playing() as u8) << 4
                     | (self.noise.is_playin() as u8) << 3
                     | (self.triangle.is_playing() as u8) << 2
                     | (self.pulse2.is_playing() as u8) << 1

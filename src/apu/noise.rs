@@ -54,7 +54,7 @@ impl Noise {
     pub fn write_main_register(&mut self, val: u8) {
         self.length_counter.halted = (val & 0b0010_0000) != 0;
         self.envelope.constant_volume = (val & 0b0001_0000) != 0;
-        self.envelope.period = val << 4;
+        self.envelope.period = val & 0x0F;
     }
 
     /// $400E (write) \
@@ -64,7 +64,7 @@ impl Noise {
     /// P: Timer period(index of table)
     pub fn write_mode_period_register(&mut self, val: u8) {
         self.mode = (val & 0b1000_0000) != 0;
-        self.timer.period = Self::TIMER_PERIOD[(val << 4) as usize];
+        self.timer.period = Self::TIMER_PERIOD[(val & 0xF) as usize];
     }
 
     /// $400F (write) \

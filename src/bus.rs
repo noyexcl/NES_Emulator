@@ -46,7 +46,7 @@ impl<'call> Bus<'call> {
         F: FnMut(&NesPPU, &mut APU, &mut Joypad) + 'call,
     {
         let ppu = NesPPU::new(rom.chr_rom, rom.screen_mirroring);
-        let apu = APU::new();
+        let apu = APU::new(rom.prg_rom.clone());
 
         Bus {
             cpu_vram: [0; 2048],
@@ -109,8 +109,8 @@ impl Mem for Bus<'_> {
             0x2004 => self.ppu.read_oam_data(),
             0x2007 => self.ppu.read_data(),
             0x4000..=0x4014 => panic!("Attempt to read from write-only APU address {:x}", addr),
-            0x4015 => self.apu.read_register(addr), // Ignore APU
-            0x4016 => self.joypad.read(),           // Ignore Joypad 1
+            0x4015 => self.apu.read_register(addr), 
+            0x4016 => self.joypad.read(),           
             0x4017 => 0,                            // Ignore Joypad 2
 
             0x2008..=PPU_REGISTERS_MIRRORS_END => {
