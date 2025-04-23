@@ -535,6 +535,14 @@ impl<'a> CPU<'a> {
         let opcode_table: &HashMap<u8, &'static opcodes::OpCode> = &opcodes::OPCODES_MAP;
 
         loop {
+            if self.bus.cpu_stall > 0 {
+                // Skip CPU process if stalled
+                let c = self.bus.cpu_stall;
+                self.bus.cpu_stall = 0;
+                self.bus.tick(c as u8);
+                continue;
+            }
+
             if let Some(_nmi) = self.bus.poll_nmi_status() {
                 self.interrupt(interrupt::NMI);
             }

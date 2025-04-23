@@ -33,6 +33,7 @@ pub struct DMC {
     pub irq_flag: bool,
     enabled: bool,
     rom: Rc<Rom>,
+    pub cpu_stall: usize,
 }
 
 impl DMC {
@@ -57,6 +58,7 @@ impl DMC {
             irq_flag: false,
             enabled: false,
             rom,
+            cpu_stall: 0,
         }
     }
 
@@ -67,7 +69,10 @@ impl DMC {
 
         // If there are remaining bits, these will be played first
         if self.sample_buffer == 0 && self.current_length > 0 {
-            // We might need to do something with stalled CPU cycle
+            // Loading sample causes CPU stall (by 1~4 cycle)
+            // The exact cycle depends on many factors but here we just set it to 4
+            self.cpu_stall += 4;
+
             self.load_sample();
         }
 

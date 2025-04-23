@@ -39,6 +39,7 @@ pub struct Bus<'call> {
     joypad: Joypad,
 
     pub cycles: usize,
+    pub cpu_stall: usize,
     gameloop_callback: Box<dyn FnMut(&PPU, &mut APU, &mut Joypad) + 'call>,
 }
 
@@ -59,6 +60,7 @@ impl<'call> Bus<'call> {
             apu,
             joypad: Joypad::new(),
             cycles: 0,
+            cpu_stall: 0,
             gameloop_callback: Box::from(gameloop_callback),
         }
     }
@@ -73,6 +75,9 @@ impl<'call> Bus<'call> {
         for _ in 0..cycles {
             self.apu.tick();
         }
+
+        self.cpu_stall = self.apu.cpu_stall;
+        self.apu.cpu_stall = 0;
 
         if !nmi_before && nmi_after {
             (self.gameloop_callback)(&self.ppu, &mut self.apu, &mut self.joypad);

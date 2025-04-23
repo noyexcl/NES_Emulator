@@ -140,7 +140,7 @@ fn main() {
         .unwrap();
 
     let desired_spec = AudioSpecDesired {
-        freq: Some(44300),
+        freq: Some(43800),
         channels: Some(2),
         samples: Some(730),
     };

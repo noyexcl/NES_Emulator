@@ -33,6 +33,7 @@ pub struct APU {
     frame_counter: FrameCounter,
     filters: [FirstOrderFilter; 3],
     cycles: usize,
+    pub cpu_stall: usize,
 }
 
 impl APU {
@@ -51,6 +52,7 @@ impl APU {
                 FirstOrderFilter::low_pass(44100.0, 14_000.0),
             ],
             cycles: 0,
+            cpu_stall: 0,
         }
     }
 
@@ -84,6 +86,9 @@ impl APU {
             self.buffer.push(s);
             self.buffer.push(s);
         }
+
+        self.cpu_stall = self.dmc.cpu_stall;
+        self.dmc.cpu_stall = 0;
     }
 
     fn clock_quarter_frame(&mut self) {
