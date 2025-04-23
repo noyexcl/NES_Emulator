@@ -1,3 +1,7 @@
+use std::rc::Rc;
+
+use crate::rom::Rom;
+
 use super::timer::Timer;
 
 //                         Timer
@@ -28,7 +32,7 @@ pub struct DMC {
     irq_enabled: bool,
     pub irq_flag: bool,
     enabled: bool,
-    prg_rom: Vec<u8>,
+    rom: Rc<Rom>,
 }
 
 impl DMC {
@@ -36,7 +40,7 @@ impl DMC {
         428, 380, 340, 320, 286, 254, 226, 214, 190, 160, 142, 128, 106, 84, 72, 54,
     ];
 
-    pub fn new(prg_rom: Vec<u8>) -> Self {
+    pub fn new(rom: Rc<Rom>) -> Self {
         Self {
             timer: Timer::new(),
             sample_buffer: 0,
@@ -52,7 +56,7 @@ impl DMC {
             irq_enabled: false,
             irq_flag: false,
             enabled: false,
-            prg_rom,
+            rom,
         }
     }
 
@@ -147,7 +151,7 @@ impl DMC {
     }
 
     fn load_sample(&mut self) {
-        self.sample_buffer = self.read_prg_rom(self.current_addr);
+        self.sample_buffer = self.rom.read_prg_rom(self.current_addr);
 
         if self.current_addr == 0xFFFF {
             self.current_addr = 0x8000;
@@ -172,16 +176,6 @@ impl DMC {
     /// Return true if DMC remaining bytes is more than 0.
     pub fn is_playing(&self) -> bool {
         self.current_length > 0
-    }
-
-    fn read_prg_rom(&self, mut addr: u16) -> u8 {
-        addr -= 0x8000;
-        if self.prg_rom.len() == 0x4000 && addr >= 0x4000 {
-            // Mirror if needed
-            addr %= 0x4000;
-        }
-
-        self.prg_rom[addr as usize]
     }
 
     fn clock_shifter(&mut self) {

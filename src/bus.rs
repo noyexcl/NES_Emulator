@@ -1,4 +1,6 @@
-use crate::{apu::APU, cpu::Mem, joypad::Joypad, ppu::NesPPU, rom::Rom};
+use std::rc::Rc;
+
+use crate::{apu::APU, cpu::Mem, joypad::Joypad, ppu::PPU, rom::Rom};
 
 //  _______________ $10000  _______________
 // | PRG-ROM       |       |               |
@@ -31,26 +33,28 @@ use crate::{apu::APU, cpu::Mem, joypad::Joypad, ppu::NesPPU, rom::Rom};
 #[allow(clippy::type_complexity)]
 pub struct Bus<'call> {
     cpu_vram: [u8; 2048],
-    prg_rom: Vec<u8>,
-    ppu: NesPPU,
+    rom: Rc<Rom>,
+    ppu: PPU,
     apu: APU,
     joypad: Joypad,
 
     pub cycles: usize,
-    gameloop_callback: Box<dyn FnMut(&NesPPU, &mut APU, &mut Joypad) + 'call>,
+    gameloop_callback: Box<dyn FnMut(&PPU, &mut APU, &mut Joypad) + 'call>,
 }
 
 impl<'call> Bus<'call> {
     pub fn new<F>(rom: Rom, gameloop_callback: F) -> Bus<'call>
     where
-        F: FnMut(&NesPPU, &mut APU, &mut Joypad) + 'call,
+        F: FnMut(&PPU, &mut APU, &mut Joypad) + 'call,
     {
-        let ppu = NesPPU::new(rom.chr_rom, rom.screen_mirroring);
-        let apu = APU::new(rom.prg_rom.clone());
+        let ppu = PPU::new(rom.chr_rom.clone(), rom.screen_mirroring);
+
+        let rom = Rc::new(rom);
+        let apu = APU::new(rom.clone());
 
         Bus {
             cpu_vram: [0; 2048],
-            prg_rom: rom.prg_rom,
+            rom,
             ppu,
             apu,
             joypad: Joypad::new(),
@@ -78,16 +82,6 @@ impl<'call> Bus<'call> {
     pub fn poll_nmi_status(&mut self) -> Option<u8> {
         self.ppu.nmi_interrupt.take()
     }
-
-    fn read_prg_rom(&self, mut addr: u16) -> u8 {
-        addr -= 0x8000;
-        if self.prg_rom.len() == 0x4000 && addr >= 0x4000 {
-            // Mirror if needed
-            addr %= 0x4000;
-        }
-
-        self.prg_rom[addr as usize]
-    }
 }
 
 const RAM: u16 = 0x0000;
@@ -109,15 +103,15 @@ impl Mem for Bus<'_> {
             0x2004 => self.ppu.read_oam_data(),
             0x2007 => self.ppu.read_data(),
             0x4000..=0x4014 => panic!("Attempt to read from write-only APU address {:x}", addr),
-            0x4015 => self.apu.read_register(addr), 
-            0x4016 => self.joypad.read(),           
-            0x4017 => 0,                            // Ignore Joypad 2
+            0x4015 => self.apu.read_register(addr),
+            0x4016 => self.joypad.read(),
+            0x4017 => 0, // Ignore Joypad 2
 
             0x2008..=PPU_REGISTERS_MIRRORS_END => {
                 let mirror_down_addr = addr & 0b0010_0000_0000_0111;
                 self.mem_read(mirror_down_addr)
             }
-            0x8000..=0xFFFF => self.read_prg_rom(addr),
+            0x8000..=0xFFFF => self.rom.read_prg_rom(addr),
             _ => {
                 println!("Ignoring mem access(read) at {:x}", addr);
                 0

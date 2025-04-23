@@ -2,7 +2,7 @@ const NES_TAG: [u8; 4] = [0x4e, 0x45, 0x53, 0x1a];
 const PRG_ROM_PAGE_SIZE: usize = 16384;
 const CHR_ROM_PAGE_SIZE: usize = 8192;
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Clone, Copy)]
 pub enum Mirroring {
     Vertical,
     Horizontal,
@@ -51,6 +51,16 @@ impl Rom {
             mapper,
             screen_mirroring,
         })
+    }
+
+    pub fn read_prg_rom(&self, mut addr: u16) -> u8 {
+        addr -= 0x8000;
+        if self.prg_rom.len() == 0x4000 && addr >= 0x4000 {
+            // Mirror if needed
+            addr %= 0x4000;
+        }
+
+        self.prg_rom[addr as usize]
     }
 }
 

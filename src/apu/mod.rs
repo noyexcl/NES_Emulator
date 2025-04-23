@@ -11,12 +11,16 @@ mod sweep;
 mod timer;
 mod triangle;
 
+use std::rc::Rc;
+
 use dmc::DMC;
 use filter::FirstOrderFilter;
 use frame_counter::{FrameCounter, FrameType};
 use noise::Noise;
 use pulse::Pulse;
 use triangle::Triangle;
+
+use crate::rom::Rom;
 
 #[allow(clippy::upper_case_acronyms)]
 pub struct APU {
@@ -32,14 +36,14 @@ pub struct APU {
 }
 
 impl APU {
-    pub fn new(prg_rom: Vec<u8>) -> Self {
+    pub fn new(rom: Rc<Rom>) -> Self {
         Self {
             buffer: vec![],
             pulse1: Pulse::new(true),
             pulse2: Pulse::new(false),
             triangle: Triangle::new(),
             noise: Noise::new(),
-            dmc: DMC::new(prg_rom),
+            dmc: DMC::new(rom),
             frame_counter: FrameCounter::new(),
             filters: [
                 FirstOrderFilter::high_pass(44100.0, 90.0),

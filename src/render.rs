@@ -1,11 +1,11 @@
 pub mod frame;
 pub mod palette;
 
-use crate::{ppu::NesPPU, rom::Mirroring};
+use crate::{ppu::PPU, rom::Mirroring};
 use frame::Frame;
 
 fn bg_palette(
-    ppu: &NesPPU,
+    ppu: &PPU,
     attribute_table: &[u8],
     tile_column: usize,
     tile_row: usize,
@@ -30,7 +30,7 @@ fn bg_palette(
     ]
 }
 
-fn sprite_palette(ppu: &NesPPU, palette_idx: u8) -> [u8; 4] {
+fn sprite_palette(ppu: &PPU, palette_idx: u8) -> [u8; 4] {
     let start = 0x11 + (palette_idx * 4) as usize;
     [
         0,
@@ -55,7 +55,7 @@ impl Rect {
 
 #[allow(clippy::needless_range_loop)]
 fn render_name_table(
-    ppu: &NesPPU,
+    ppu: &PPU,
     frame: &mut Frame,
     name_table: &[u8],
     view_port: Rect,
@@ -107,7 +107,7 @@ fn render_name_table(
     }
 }
 
-pub fn render(ppu: &NesPPU, frame: &mut Frame) {
+pub fn render(ppu: &PPU, frame: &mut Frame) {
     let scroll_x = ppu.scroll.x as usize;
     let scroll_y = ppu.scroll.y as usize;
 

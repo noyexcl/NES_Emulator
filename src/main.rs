@@ -19,7 +19,7 @@ use cpu::Mem;
 use cpu::CPU;
 use joypad::Joypad;
 use joypad::JoypadButton;
-use ppu::NesPPU;
+use ppu::PPU;
 use rand::Rng;
 use render::frame::show_tile;
 use render::frame::Frame;
@@ -140,7 +140,7 @@ fn main() {
         .unwrap();
 
     let desired_spec = AudioSpecDesired {
-        freq: Some(43800),
+        freq: Some(44300),
         channels: Some(2),
         samples: Some(730),
     };
@@ -165,42 +165,39 @@ fn main() {
 
     let mut frame = Frame::new();
 
-    let bus = Bus::new(
-        rom,
-        move |ppu: &NesPPU, apu: &mut APU, joypad: &mut Joypad| {
-            render::render(ppu, &mut frame);
-            texture.update(None, &frame.data, 256 * 3).unwrap();
+    let bus = Bus::new(rom, move |ppu: &PPU, apu: &mut APU, joypad: &mut Joypad| {
+        render::render(ppu, &mut frame);
+        texture.update(None, &frame.data, 256 * 3).unwrap();
 
-            canvas.copy(&texture, None, None).unwrap();
-            canvas.present();
+        canvas.copy(&texture, None, None).unwrap();
+        canvas.present();
 
-            let sound = apu.output();
-            audio_queue.queue(&sound.buffer);
+        let sound = apu.output();
+        audio_queue.queue(&sound.buffer);
 
-            for event in event_pump.poll_iter() {
-                match event {
-                    Event::Quit { .. }
-                    | Event::KeyDown {
-                        keycode: Some(Keycode::Escape),
-                        ..
-                    } => std::process::exit(0),
+        for event in event_pump.poll_iter() {
+            match event {
+                Event::Quit { .. }
+                | Event::KeyDown {
+                    keycode: Some(Keycode::Escape),
+                    ..
+                } => std::process::exit(0),
 
-                    Event::KeyDown { keycode, .. } => {
-                        if let Some(key) = key_map.get(&keycode.unwrap_or(Keycode::Ampersand)) {
-                            joypad.set_button_pressed_status(*key, true);
-                        }
+                Event::KeyDown { keycode, .. } => {
+                    if let Some(key) = key_map.get(&keycode.unwrap_or(Keycode::Ampersand)) {
+                        joypad.set_button_pressed_status(*key, true);
                     }
-                    Event::KeyUp { keycode, .. } => {
-                        if let Some(key) = key_map.get(&keycode.unwrap_or(Keycode::Ampersand)) {
-                            joypad.set_button_pressed_status(*key, false);
-                        }
-                    }
-
-                    _ => { /* do nothing */ }
                 }
+                Event::KeyUp { keycode, .. } => {
+                    if let Some(key) = key_map.get(&keycode.unwrap_or(Keycode::Ampersand)) {
+                        joypad.set_button_pressed_status(*key, false);
+                    }
+                }
+
+                _ => { /* do nothing */ }
             }
-        },
-    );
+        }
+    });
 
     let mut log_file = File::create("cpu.log").unwrap();
 
