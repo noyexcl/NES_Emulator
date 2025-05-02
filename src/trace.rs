@@ -5,13 +5,27 @@ use crate::{
     opcodes,
 };
 
+const UNOFFICIAL_OPCODES: [u8; 80] = [
+    0x1A, 0x3A, 0x5A, 0x7A, 0xDA, 0xFA, 0x04, 0x44, 0x64, 0x0c, 0x1c, 0x3C, 0x5C, 0x7C, 0xDC, 0xFC,
+    0x14, 0x34, 0x54, 0x74, 0xD4, 0xF4, 0x80, 0x82, 0x89, 0xC2, 0xE2, 0xA7, 0xB7, 0xAF, 0xBF, 0xA3,
+    0xB3, 0x87, 0x97, 0x8F, 0x83, 0xEB, 0xC7, 0xD7, 0xCF, 0xDF, 0xDB, 0xC3, 0xD3, 0xE7, 0xF7, 0xEF,
+    0xFF, 0xFB, 0xE3, 0xF3, 0x07, 0x17, 0x0F, 0x1F, 0x1B, 0x03, 0x13, 0x27, 0x37, 0x2F, 0x3F, 0x3B,
+    0x23, 0x33, 0x47, 0x57, 0x4F, 0x5F, 0x5B, 0x43, 0x53, 0x67, 0x77, 0x6F, 0x7F, 0x7B, 0x63, 0x73,
+];
+
+const WRITE_ONLY_ADDRESS: [u16; 14] = [
+    0x2000, 0x2001, 0x2002, 0x2003, 0x2004, 0x2005, 0x2006, 0x2007, 0x4004,
+    0x4015, /*It's not actually*/
+    0x4004, 0x4005, 0x4006, 0x4007,
+];
+
 pub fn trace(cpu: &mut CPU) -> String {
     let mut result = String::new();
     let opcode_table: &HashMap<u8, &'static opcodes::OpCode> = &opcodes::OPCODES_MAP;
     let code = cpu.bus.mem_read(cpu.program_counter);
     let opcode = opcode_table
         .get(&code)
-        .unwrap_or_else(|| panic!("OpCode {:x} is not recognized", code));
+        .unwrap_or_else(|| panic!("OpCode {:02X} is not recognized", code));
 
     // program counter & opcode
     result.push_str(&format!("{:04X}  ", cpu.program_counter));
@@ -19,19 +33,27 @@ pub fn trace(cpu: &mut CPU) -> String {
 
     // following opcodes
     if opcode.len == 1 {
-        result.push_str("       ");
+        result.push_str("      ");
     } else if opcode.len == 2 {
         result.push_str(&format!(
-            "{:02X}     ",
+            "{:02X}    ",
             cpu.bus.mem_read(cpu.program_counter + 1)
         ));
     } else if opcode.len == 3 {
         result.push_str(&format!(
-            "{:02X} {:02X}  ",
+            "{:02X} {:02X} ",
             cpu.bus.mem_read(cpu.program_counter + 1),
             cpu.bus.mem_read(cpu.program_counter + 2)
         ));
     }
+
+    let unofficial_op = UNOFFICIAL_OPCODES.iter().any(|&x| x == opcode.code);
+
+    result.push_str(&format!(
+        "{}{} ",
+        if unofficial_op { "*" } else { " " },
+        opcode.mnemonic
+    ));
 
     // mnemonic & formatted operand
     match opcode.mode {
@@ -39,65 +61,47 @@ pub fn trace(cpu: &mut CPU) -> String {
             let value = cpu.bus.mem_read(cpu.program_counter + 1);
 
             // mnemonic & value with format
-            result.push_str(&format!(
-                "{:32}",
-                format!("{} #${:02X}", opcode.mnemonic, value)
-            ));
+            result.push_str(&format!("{:28}", format!("#${:02X}", value)));
         }
         AddressingMode::ZeroPage => {
             let addr = get_operand_address(cpu, &opcode.mode);
-            let value = cpu.bus.mem_read(addr);
+            let value = read_value(cpu, addr);
 
             // mnemonic & addr with format
-            result.push_str(&format!(
-                "{:32}",
-                format!("{} ${:02X} = {:02X}", opcode.mnemonic, addr, value)
-            ));
+            result.push_str(&format!("{:28}", format!("${:02X} = {:02X}", addr, value)));
         }
         AddressingMode::ZeroPage_X => {
             let base = cpu.bus.mem_read(cpu.program_counter + 1);
             let addr = get_operand_address(cpu, &opcode.mode);
-            let value = cpu.bus.mem_read(addr);
+            let value = read_value(cpu, addr);
 
             result.push_str(&format!(
-                "{:32}",
-                format!(
-                    "{} ${:02X},X @ {:02X} = {:02X}",
-                    opcode.mnemonic, base, addr as u8, value
-                )
+                "{:28}",
+                format!("${:02X},X @ {:02X} = {:02X}", base, addr as u8, value)
             ));
         }
 
         AddressingMode::ZeroPage_Y => {
             let base = cpu.bus.mem_read(cpu.program_counter + 1);
             let addr = get_operand_address(cpu, &opcode.mode);
-            let value = cpu.bus.mem_read(addr);
+            let value = read_value(cpu, addr);
 
             result.push_str(&format!(
-                "{:32}",
-                format!(
-                    "{} ${:02X},Y @ {:02X} = {:02X}",
-                    opcode.mnemonic, base, addr as u8, value
-                )
+                "{:28}",
+                format!("${:02X},Y @ {:02X} = {:02X}", base, addr as u8, value)
             ));
         }
         AddressingMode::Absolute => {
             let addr = get_operand_address(cpu, &opcode.mode);
-            let value = cpu.bus.mem_read(addr);
+            let value = read_value(cpu, addr);
 
             match opcode.code {
                 // JMP系の命令の場合、値は表示しない
                 0x4c | 0x20 => {
-                    result.push_str(&format!(
-                        "{:32}",
-                        format!("{} ${:04X}", opcode.mnemonic, addr)
-                    ));
+                    result.push_str(&format!("{:28}", format!("${:04X}", addr)));
                 }
                 _ => {
-                    result.push_str(&format!(
-                        "{:32}",
-                        format!("{} ${:04X} = {:02X}", opcode.mnemonic, addr, value)
-                    ));
+                    result.push_str(&format!("{:28}", format!("${:04X} = {:02X}", addr, value)));
                 }
             }
         }
@@ -110,11 +114,8 @@ pub fn trace(cpu: &mut CPU) -> String {
             let value = cpu.bus.mem_read(indexed_addr);
 
             result.push_str(&format!(
-                "{:32}",
-                format!(
-                    "{} ${:04X},X @ {:04X} = {:02X}",
-                    opcode.mnemonic, addr, indexed_addr, value
-                )
+                "{:28}",
+                format!("${:04X},X @ {:04X} = {:02X}", addr, indexed_addr, value)
             ));
         }
         AddressingMode::Absolute_Y => {
@@ -126,11 +127,8 @@ pub fn trace(cpu: &mut CPU) -> String {
             let value = cpu.bus.mem_read(indexed_addr);
 
             result.push_str(&format!(
-                "{:32}",
-                format!(
-                    "{} ${:04X},Y @ {:04X} = {:02X}",
-                    opcode.mnemonic, addr, indexed_addr, value
-                )
+                "{:28}",
+                format!("${:04X},Y @ {:04X} = {:02X}", addr, indexed_addr, value)
             ));
         }
         AddressingMode::Indirect => {
@@ -141,8 +139,8 @@ pub fn trace(cpu: &mut CPU) -> String {
             let jmp_addr = get_operand_address(cpu, &opcode.mode);
 
             result.push_str(&format!(
-                "{:32}",
-                format!("{} (${:04X}) = {:04X}", opcode.mnemonic, addr, jmp_addr)
+                "{:28}",
+                format!("(${:04X}) = {:04X}", addr, jmp_addr)
             ));
         }
         AddressingMode::Indirect_X => {
@@ -151,10 +149,9 @@ pub fn trace(cpu: &mut CPU) -> String {
             let value = cpu.bus.mem_read(addr);
 
             result.push_str(&format!(
-                "{:32}",
+                "{:28}",
                 format!(
-                    "{} (${:02X},X) @ {:02X} = {:04X} = {:02X}",
-                    opcode.mnemonic,
+                    "(${:02X},X) @ {:02X} = {:04X} = {:02X}",
                     base,
                     base.wrapping_add(cpu.register_x),
                     addr,
@@ -166,32 +163,30 @@ pub fn trace(cpu: &mut CPU) -> String {
             let base = cpu.bus.mem_read(cpu.program_counter + 1);
             let addr = get_operand_address(cpu, &opcode.mode);
             let addr_before_indexed = addr.wrapping_sub(cpu.register_y as u16);
-            let value = cpu.bus.mem_read(addr);
+            let value = read_value(cpu, addr);
 
             result.push_str(&format!(
-                "{:32}",
+                "{:28}",
                 format!(
-                    "{} (${:02X}),Y = {:04X} @ {:04X} = {:02X}",
-                    opcode.mnemonic, base, addr_before_indexed, addr, value
+                    "(${:02X}),Y = {:04X} @ {:04X} = {:02X}",
+                    base, addr_before_indexed, addr, value
                 )
             ));
         }
         AddressingMode::NoneAddressing => match opcode.code {
             // ブランチ系のRelativeアドレッシングモードでは、ジャンプ先のアドレスを計算して表示する
             0x90 | 0xB0 | 0xF0 | 0x30 | 0xD0 | 0x10 | 0x50 | 0x70 => {
-                let offset = cpu.mem_read(cpu.program_counter + 1) as u16;
-                let jmp_addr = cpu.program_counter + 2 + offset;
-                result.push_str(&format!(
-                    "{:32}",
-                    format!("{} ${:04X}", opcode.mnemonic, jmp_addr)
-                ));
+                let offset = cpu.mem_read(cpu.program_counter + 1) as i8 as i16;
+                let jmp_addr = ((cpu.program_counter + 2) as i16).wrapping_add(offset) as u16;
+
+                result.push_str(&format!("{:28}", format!("${:04X}", jmp_addr)));
             }
             // Accumulatorアドレッシングモードの場合、Aと表示する
             0x4A | 0x0A | 0x6A | 0x2A => {
-                result.push_str(&format!("{:32}", format!("{} A", opcode.mnemonic)));
+                result.push_str(&format!("{:28}", "A"));
             }
             _ => {
-                result.push_str(&format!("{:32}", opcode.mnemonic));
+                result.push_str(&format!("{:28}", ""));
             }
         },
     }
@@ -274,6 +269,14 @@ fn get_operand_address(cpu: &mut CPU, mode: &AddressingMode) -> u16 {
         AddressingMode::NoneAddressing => {
             panic!("mode {:?} is not supported", mode);
         }
+    }
+}
+
+fn read_value(cpu: &mut CPU, addr: u16) -> u8 {
+    if WRITE_ONLY_ADDRESS.contains(&addr) {
+        0xFF
+    } else {
+        cpu.bus.mem_read(addr)
     }
 }
 

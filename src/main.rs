@@ -11,6 +11,8 @@ mod trace;
 use std::collections::HashMap;
 use std::fs::File;
 use std::io::Write;
+use std::os::windows::thread;
+use std::time::Instant;
 
 use apu::Sound;
 use apu::APU;
@@ -26,12 +28,14 @@ use render::frame::Frame;
 use rom::Rom;
 use sdl2::audio;
 use sdl2::audio::AudioQueue;
+use sdl2::audio::AudioStatus;
 use sdl2::audio::{AudioCallback, AudioSpecDesired};
 use sdl2::event::Event;
 use sdl2::keyboard::Keycode;
 use sdl2::pixels::Color;
 use sdl2::pixels::PixelFormatEnum;
 use sdl2::EventPump;
+use std::thread::sleep;
 use std::time::Duration;
 use trace::trace;
 
@@ -103,22 +107,6 @@ fn handle_user_input(cpu: &mut CPU, event_pump: &mut EventPump) {
     }
 }
 
-impl AudioCallback for Sound {
-    type Channel = i16;
-
-    fn callback(&mut self, out: &mut [Self::Channel]) {
-        println!("out {}, buf {}", out.len(), self.buffer.len());
-
-        for x in out.iter_mut() {
-            if let Some(data) = self.buffer.pop() {
-                *x = data;
-            } else {
-                *x = 0;
-            }
-        }
-    }
-}
-
 fn main() {
     // init sdl2
     let sdl_context = sdl2::init().unwrap();
@@ -140,13 +128,21 @@ fn main() {
         .unwrap();
 
     let desired_spec = AudioSpecDesired {
-        freq: Some(43800),
+        freq: Some(44100),
         channels: Some(2),
-        samples: Some(730),
+        samples: Some(735),
     };
 
     let audio_queue: AudioQueue<i16> = audio_subsystem.open_queue(None, &desired_spec).unwrap();
     audio_queue.resume();
+
+    let mut samples: Vec<i16> = vec![];
+    let wav_spec = hound::WavSpec {
+        channels: 2,
+        sample_rate: 44100,
+        bits_per_sample: 16,
+        sample_format: hound::SampleFormat::Int,
+    };
 
     // init joypad
     let mut key_map = HashMap::new();
@@ -159,21 +155,35 @@ fn main() {
     key_map.insert(Keycode::A, JoypadButton::BUTTON_A);
     key_map.insert(Keycode::S, JoypadButton::BUTTON_B);
 
+    let target_frame_time = Duration::from_secs_f64(1.0 / 60.0);
+    let frame_start = Instant::now();
+
     //load the game
     let raw = std::fs::read("pacman.nes").unwrap();
     let rom = Rom::new(&raw).unwrap();
 
     let mut frame = Frame::new();
 
+    let mut frame_counter = 0;
+
     let bus = Bus::new(rom, move |ppu: &PPU, apu: &mut APU, joypad: &mut Joypad| {
         render::render(ppu, &mut frame);
         texture.update(None, &frame.data, 256 * 3).unwrap();
 
+        /*
+        let frame_time = frame_start.elapsed();
+        if frame_time < target_frame_time {
+            std::thread::sleep(target_frame_time - frame_time);
+        }
+        */
+
         canvas.copy(&texture, None, None).unwrap();
         canvas.present();
 
-        let sound = apu.output();
+        let mut sound = apu.output();
         audio_queue.queue(&sound.buffer);
+
+        samples.append(&mut sound.buffer.clone());
 
         for event in event_pump.poll_iter() {
             match event {
@@ -181,7 +191,16 @@ fn main() {
                 | Event::KeyDown {
                     keycode: Some(Keycode::Escape),
                     ..
-                } => std::process::exit(0),
+                } => {
+                    let mut writer = hound::WavWriter::create("output.wav", wav_spec).unwrap();
+                    for s in samples.iter() {
+                        writer.write_sample(*s).unwrap();
+                    }
+
+                    writer.finalize().unwrap();
+
+                    std::process::exit(0)
+                }
 
                 Event::KeyDown { keycode, .. } => {
                     if let Some(key) = key_map.get(&keycode.unwrap_or(Keycode::Ampersand)) {

@@ -8,6 +8,8 @@ pub struct LengthCounter {
     enabled: bool,
     pub halted: bool,
     counter: u8,
+    new_halted: Option<bool>,
+    new_counter: Option<u8>,
 }
 
 impl LengthCounter {
@@ -16,12 +18,15 @@ impl LengthCounter {
             enabled: false,
             halted: false,
             counter: 0,
+            new_halted: None,
+            new_counter: None,
         }
     }
 
     pub fn clock(&mut self) {
-        if self.enabled && !self.halted && self.counter > 0 {
+        if !self.halted && self.counter > 0 {
             self.counter -= 1;
+            // println!("decrment {}", self.counter);
         }
     }
 
@@ -34,14 +39,24 @@ impl LengthCounter {
     }
 
     pub fn set_length(&mut self, length: u8) {
-        self.counter = LENGTH_TABLE[length as usize];
+        if self.enabled {
+            self.new_counter = Some(LENGTH_TABLE[length as usize]);
+        }
+    }
+
+    pub fn set_halted(&mut self, halted: bool) {
+        self.new_halted = Some(halted);
+    }
+
+    pub fn reload(&mut self) {
+        self.counter = self.new_counter.take().unwrap_or(self.counter);
+        self.halted = self.new_halted.take().unwrap_or(self.halted);
     }
 
     pub fn is_active(&self) -> bool {
         self.counter > 0
     }
 }
-
 
 #[cfg(test)]
 mod tests {

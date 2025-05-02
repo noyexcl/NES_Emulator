@@ -1,31 +1,12 @@
-// Envelope の挙動
-// フレームカウンターによってクロックされた時、2つのアクションのうちいずれかが起こる
-// 1. Start flagがクリア
-// -> Divider がクロックされる
-// 2. Start flagがセット
-// -> Start flag はクリアされ、Decay level counter が15でロードされる。そして Divider の期限が即座にリロードされる
-//
-// Divider が0でクロックされると対応するレジスターで設定された値 V でロードされ、Decay level counter をクロックする
-//
-// Decay level counter がクロックされると2つのアクションのうちいずれかが起こる
-// 1. カウンターが0ではない
-// -> デクリメントされる
-// 2. カウンターが0であり、ループフラグがセットされている
-// -> Decay level counterが15でロードされる
-//
-// エンベロープのボリューム出力は Constant volume flag による
-// セットされていれば、エンベロープパラメータが直接ボリュームに設定される
-// クリアされていれば、Decay level が現在のボリュームになる
-//
-// Constant volume flag はボリュームの元を設定する他、何の効果も持たない。Decay level は Constant Volume が選択されている間も更新され続ける
-//
-// エンベロープの出力は、以下の追加のゲート Sweep (Pulseの時のみ)、Waveform generator(sequencer or LFSR)、length counter を通して供給される
+/// 時間とともに変化するパラメータを再現する \
+/// パラメータは15段階あり、一定期間が経過すると1ずつ減衰していく
 pub struct Envelope {
     counter: u8,
     pub period: u8,
     decay_level: u8,
     pub start_flag: bool,
     pub looping: bool,
+    // Constant volume flag はボリュームの元を設定する他、何の効果も持たない。Decay level は Constant Volume が選択されている間も更新され続ける
     pub constant_volume: bool,
 }
 
@@ -42,9 +23,23 @@ impl Envelope {
     }
 
     pub fn clock(&mut self) {
+        // フレームカウンターによってクロックされた時、2つのアクションのうちいずれかが起こる
+        // 1. Start flag がクリア
+        //   - Divider がクロックされる
+        // 2. Start flag がセット
+        //   - Start flag はクリアされ、Decay level counter が15でロードされる。
+        //   - そして Divider の期限が即座にリロードされる
+        //
+        // Divider が0でクロックされると対応するレジスターで設定された値Vでロードされ、Decay level counter をクロックする
+        //
+        // Decay level counter がクロックされると2つのアクションのうちいずれかが起こる
+        // 1. カウンターが0ではない
+        //   - デクリメントされる
+        // 2. カウンターが0であり、ループフラグがセットされている
+        //   - Decay level counter が15でロードされる
+
         if self.start_flag {
             self.start_flag = false;
-
             self.decay_level = 15;
             self.counter = self.period;
             return;
@@ -63,9 +58,10 @@ impl Envelope {
         }
     }
 
+    /// 0~15 の範囲で現在のボリュームを返す \
+    /// Constant volume がオンならば常に period の値を返す
     pub fn current_volume(&self) -> u8 {
         if self.constant_volume {
-            // Constant volume での volume は period の値が使われる
             self.period
         } else {
             self.decay_level

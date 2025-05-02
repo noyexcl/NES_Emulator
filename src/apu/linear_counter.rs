@@ -25,7 +25,7 @@ impl LinearCounter {
             self.counter -= 1;
         }
 
-        // リロードフラグはコントロールフラグがクリアされない限り、クリアされない
+        // コントロールフラグがクリアされない限り、リロードフラグはクリアされない
         if !self.ctrl {
             self.reload = false;
         }

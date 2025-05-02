@@ -62,8 +62,8 @@ impl APU {
         self.triangle.clock();
 
         if self.cycles % 2 == 1 {
-            self.pulse1.tick_timer();
-            self.pulse2.tick_timer();
+            self.pulse1.apu_tick();
+            self.pulse2.apu_tick();
             self.noise.apu_tick();
             self.dmc.apu_tick();
         }
@@ -77,6 +77,11 @@ impl APU {
             }
             FrameType::None => (),
         }
+
+        self.pulse1.length_counter.reload();
+        self.pulse2.length_counter.reload();
+        self.triangle.length_counter.reload();
+        self.noise.length_counter.reload();
 
         // We need 730 stereo audio samples per frame for 60 fps.
         // Each frame lasts a minimum of 29,779 CPU cycles. This
@@ -113,7 +118,7 @@ impl APU {
         let d = self.dmc.sample() as f64;
 
         let pulse_out = 95.88 / ((8218.0 / (pulse1 + pulse2)) + 100.0);
-        let tnd_out = 159.79 / (1.0 / (t / 8227.0 + n / 12241.0 + d / 22638.0) + 100.0);
+        let tnd_out = 159.79 / ((1.0 / (t / 8227.0 + n / 12241.0 + d / 22638.0)) + 100.0);
 
         let mut output = (pulse_out + tnd_out) * 65535.0;
 
@@ -180,7 +185,7 @@ impl APU {
                 let result = (self.dmc.irq_flag as u8) << 7
                     | (self.frame_counter.irq_flag as u8) << 6
                     | (self.dmc.is_playing() as u8) << 4
-                    | (self.noise.is_playin() as u8) << 3
+                    | (self.noise.is_playing() as u8) << 3
                     | (self.triangle.is_playing() as u8) << 2
                     | (self.pulse2.is_playing() as u8) << 1
                     | self.pulse1.is_playing() as u8;

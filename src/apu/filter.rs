@@ -1,4 +1,4 @@
-use std::f64::consts::PI;
+use std::f64::consts::{PI, TAU};
 
 pub struct FirstOrderFilter {
     b0: f64,
@@ -10,7 +10,9 @@ pub struct FirstOrderFilter {
 
 impl FirstOrderFilter {
     pub fn high_pass(sample_rate: f64, cutoff_frequency: f64) -> Self {
-        let c = sample_rate / PI / cutoff_frequency;
+        let cutoff_frequency = cutoff_frequency.min(sample_rate / 2.0);
+        // let c = sample_rate / PI / cutoff_frequency;
+        let c = sample_rate / (PI * cutoff_frequency);
         let a0i = 1.0 / (1.0 + c);
 
         Self {
@@ -23,7 +25,9 @@ impl FirstOrderFilter {
     }
 
     pub fn low_pass(sample_rate: f64, cutoff_frequency: f64) -> Self {
-        let c = sample_rate / PI / cutoff_frequency;
+        let cutoff_frequency = cutoff_frequency.min(sample_rate / 2.0);
+        // let c = sample_rate / PI / cutoff_frequency;
+        let c = sample_rate / (PI * cutoff_frequency);
         let a0i = 1.0 / (1.0 + c);
 
         Self {

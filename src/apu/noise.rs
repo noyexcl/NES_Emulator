@@ -3,7 +3,7 @@ use super::{envelope::Envelope, length_counter::LengthCounter, timer::Timer};
 pub struct Noise {
     timer: Timer,
     envelope: Envelope,
-    length_counter: LengthCounter,
+    pub length_counter: LengthCounter,
     shift_reg: u16,
     mode: bool,
 }
@@ -25,14 +25,13 @@ impl Noise {
 
     pub fn apu_tick(&mut self) {
         if self.timer.tick() {
-            let feedback = if !self.mode {
-                (self.shift_reg & 1) ^ ((self.shift_reg & 0b10_0000) >> 5)
-            } else {
-                (self.shift_reg & 1) ^ ((self.shift_reg & 0b00_0010) >> 1)
-            };
+            let bit1 = self.shift_reg & 1;
+            let bit2 = (self.shift_reg >> (if self.mode { 6 } else { 1 })) & 1;
+
+            let feedback = bit1 ^ bit2;
 
             self.shift_reg >>= 1;
-            self.shift_reg |= feedback << 13;
+            self.shift_reg |= feedback << 14;
         }
     }
 
@@ -52,7 +51,7 @@ impl Noise {
     /// c: volume/envelope flag \
     /// v: volume/envelope's divider period
     pub fn write_main_register(&mut self, val: u8) {
-        self.length_counter.halted = (val & 0b0010_0000) != 0;
+        self.length_counter.set_halted((val & 0b0010_0000) != 0);
         self.envelope.constant_volume = (val & 0b0001_0000) != 0;
         self.envelope.period = val & 0x0F;
     }
@@ -92,7 +91,7 @@ impl Noise {
         self.length_counter.set_enabled(enabled);
     }
 
-    pub fn is_playin(&self) -> bool {
+    pub fn is_playing(&self) -> bool {
         self.length_counter.is_active()
     }
 }

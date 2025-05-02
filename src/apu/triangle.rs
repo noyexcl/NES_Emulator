@@ -3,9 +3,10 @@ use super::{
     timer::Timer,
 };
 
+#[rustfmt::skip]
 const TRIANGLE_WAVEFORM: [u8; 32] = [
-    15, 14, 13, 12, 11, 10, 9, 8, 7, 6, 5, 4, 3, 2, 1, 0, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12,
-    13, 14, 15,
+    15, 14, 13, 12, 11, 10, 9, 8, 7, 6, 5, 4, 3, 2, 1, 0,
+    0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15,
 ];
 
 //       Linear Counter   Length Counter
@@ -15,7 +16,7 @@ const TRIANGLE_WAVEFORM: [u8; 32] = [
 //
 pub struct Triangle {
     timer: Timer,
-    length_counter: LengthCounter,
+    pub length_counter: LengthCounter,
     linear_counter: LinearCounter,
     sequencer: Sequencer,
 }
@@ -54,19 +55,21 @@ impl Triangle {
     }
 
     /// $4008 Linear counter setup (write)
-    /// * val - CRRR RRRR
+    ///
+    /// CRRR RRRR
     ///
     /// C: Control flag & length counter halt flag \
     /// R: Counter reload value
     pub fn write_linear_counter_setup(&mut self, val: u8) {
         let ctrl_and_halt = (0b1000_0000 & val) != 0;
         self.linear_counter.ctrl = ctrl_and_halt;
-        self.length_counter.halted = ctrl_and_halt;
-        self.linear_counter.period = val >> 1;
+        self.length_counter.set_halted(ctrl_and_halt);
+        self.linear_counter.period = val & 0b0111_1111;
     }
 
     /// $400A Timer low (write)
-    /// * val - LLLL LLLL
+    ///
+    /// LLLL LLLL
     ///
     /// L: Timer low 8 bits
     pub fn write_timer_lo(&mut self, val: u8) {
@@ -74,12 +77,13 @@ impl Triangle {
     }
 
     /// $400B Length counter load and timer high (write)
-    /// * val - llll lHHH
+    ///
+    /// llll lHHH
     ///
     /// l: Length counter load value \
     /// H: Timer high 3 bits
     pub fn write_length_and_timer_hi(&mut self, val: u8) {
-        self.timer.period = (self.timer.period & 0x00FF) | (val as u16) << 8;
+        self.timer.period = (self.timer.period & 0x00FF) | (val as u16 & 0b111) << 8;
         self.length_counter.set_length(val >> 3);
 
         // Side effects

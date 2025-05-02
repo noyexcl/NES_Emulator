@@ -1,6 +1,6 @@
 use crate::{bus::Bus, opcodes};
 use core::panic;
-use std::collections::HashMap;
+use std::{collections::HashMap, ops::Add};
 
 /// # Status Register (P) http://wiki.nesdev.com/w/index.php/Status_flags
 /// # unused flag(5) is always 1 because it's hardwired so.
@@ -166,6 +166,18 @@ impl<'a> CPU<'a> {
         extra_cycle as u8
     }
 
+    /// LDA oper + LDX oper (M -> A -> X) \
+    /// *Unofficial opecode
+    fn lax(&mut self, mode: &AddressingMode) -> u8 {
+        let (addr, extra_cycle) = self.get_operand_address(mode);
+        let value = self.mem_read(addr);
+        self.register_a = value;
+
+        self.register_x = value;
+        self.update_zero_and_negative_flags(value);
+        extra_cycle as u8
+    }
+
     fn sta(&mut self, mode: &AddressingMode) {
         let (addr, _) = self.get_operand_address(mode);
         self.mem_write(addr, self.register_a);
@@ -179,6 +191,14 @@ impl<'a> CPU<'a> {
     fn sty(&mut self, mode: &AddressingMode) {
         let (addr, _) = self.get_operand_address(mode);
         self.mem_write(addr, self.register_y);
+    }
+
+    /// SAX oper (A & X -> oper) \
+    /// *Unofficial opecode
+    fn sax(&mut self, mode: &AddressingMode) {
+        let (addr, _) = self.get_operand_address(mode);
+        let value = self.register_a & self.register_x;
+        self.mem_write(addr, value);
     }
 
     fn tax(&mut self) {
@@ -305,13 +325,10 @@ impl<'a> CPU<'a> {
         let lhs = self.register_a;
         let carry_in = self.status.carry_flag as u8;
 
-        let rhs = rhs ^ 0b1111_1111;
-
-        if carry_in == 1 && rhs == 255 {
-            return extra_cycle as u8;
-        }
-
-        let (result, carry_out) = lhs.overflowing_add(rhs + carry_in);
+        let rhs = !rhs;
+        let (temp_result, carry_out1) = lhs.overflowing_add(rhs);
+        let (result, carry_out2) = temp_result.overflowing_add(carry_in);
+        let carry_out = carry_out1 || carry_out2;
 
         let flag_v = (lhs ^ result) & (rhs ^ result) & 0x80 != 0;
 
@@ -373,6 +390,22 @@ impl<'a> CPU<'a> {
         self.update_zero_and_negative_flags(self.register_y);
     }
 
+    /// DCP (DEC oper + CMP oper) \
+    /// M - 1 -> M, A - M \
+    /// *Unofficial opcode*
+    fn dcp(&mut self, mode: &AddressingMode) {
+        self.dec(mode);
+        self.compare(mode, self.register_a);
+    }
+
+    /// ISC (INC oper + SBC oper) \
+    /// M + 1 -> M, A - M - !C -> A \
+    /// *Unofficial opcode*
+    fn isb(&mut self, mode: &AddressingMode) {
+        self.inc(mode);
+        self.sbc(mode);
+    }
+
     fn asl_accumulator(&mut self) {
         let bit7 = self.register_a & 0b1000_0000 != 0;
         self.register_a <<= 1;
@@ -380,6 +413,8 @@ impl<'a> CPU<'a> {
         self.update_zero_and_negative_flags(self.register_a);
     }
 
+    /// Arithmetic Shift Left (ASL) \
+    /// `value = value << 1`, or visually `C <- [76543210] <- 0`
     fn asl(&mut self, mode: &AddressingMode) {
         let (addr, _) = self.get_operand_address(mode);
         let value = self.mem_read(addr);
@@ -416,6 +451,10 @@ impl<'a> CPU<'a> {
         self.update_zero_and_negative_flags(self.register_a);
     }
 
+    /// Rotate Left (ROL) \
+    /// `value = value << 1 through C`, or visually `C <- [76543210] <- C`
+    ///
+    /// The value in carry is shifted into bit 0, and the bit 7 is shifted into carry.
     fn rol(&mut self, mode: &AddressingMode) {
         let (addr, _) = self.get_operand_address(mode);
         let value = self.mem_read(addr);
@@ -445,6 +484,34 @@ impl<'a> CPU<'a> {
         self.update_zero_and_negative_flags(result);
     }
 
+    /// ASL oper + ORA oper \
+    /// M = M << 1, A OR M -> A
+    fn slo(&mut self, mode: &AddressingMode) {
+        self.asl(mode);
+        self.ora(mode);
+    }
+
+    /// ROL oper + AND oper \
+    /// M = M << 1 through C, A AND M -> A
+    fn rla(&mut self, mode: &AddressingMode) {
+        self.rol(mode);
+        self.and(mode);
+    }
+
+    /// LSR oper + EOR oper \
+    /// M = M >> 1, A EOR M -> A
+    fn sre(&mut self, mode: &AddressingMode) {
+        self.lsr(mode);
+        self.eor(mode);
+    }
+
+    /// ROR oper + ADC oper \
+    /// M = M >> 1 through C, A + M + C -> A
+    fn rra(&mut self, mode: &AddressingMode) {
+        self.ror(mode);
+        self.adc(mode);
+    }
+
     fn jmp(&mut self, mode: &AddressingMode) {
         let (addr, _) = self.get_operand_address(mode);
         self.program_counter = addr;
@@ -466,10 +533,9 @@ impl<'a> CPU<'a> {
         if condition {
             addnl_cycles += 1;
             let offset = self.mem_read(self.program_counter) as i8;
-            let jump_addr = self
-                .program_counter
+            let jump_addr = (self.program_counter as i16)
                 .wrapping_add(1)
-                .wrapping_add(offset as u16);
+                .wrapping_add(offset as i16) as u16;
 
             if self.program_counter.wrapping_add(1) & 0xFF00 != jump_addr & 0xFF00 {
                 addnl_cycles += 1;
@@ -486,6 +552,12 @@ impl<'a> CPU<'a> {
         self.status = Status::from_u8(data);
         self.status.break_command = false;
         self.program_counter = self.stack_pop_u16();
+    }
+
+    // Read but do nothing. Return extra cycle if the address crossed pages
+    fn read_nop(&mut self, mode: &AddressingMode) -> u8 {
+        let (_, page_crossed) = self.get_operand_address(mode);
+        page_crossed as u8
     }
 
     fn update_zero_and_negative_flags(&mut self, result: u8) {
@@ -562,85 +634,72 @@ impl<'a> CPU<'a> {
             let last_program_counter = self.program_counter;
 
             match code {
-                // LDA
                 0xA9 | 0xa5 | 0xb5 | 0xad | 0xbd | 0xb9 | 0xa1 | 0xb1 => {
                     extra_cycles = self.lda(&opcode.mode);
                 }
 
-                // LDX
                 0xa2 | 0xa6 | 0xb6 | 0xae | 0xbe => {
                     extra_cycles = self.ldx(&opcode.mode);
                 }
 
-                // LDY
                 0xa0 | 0xa4 | 0xb4 | 0xac | 0xbc => {
                     extra_cycles = self.ldy(&opcode.mode);
                 }
 
-                // STA
+                0xA7 | 0xB7 | 0xAF | 0xBF | 0xA3 | 0xB3 => {
+                    extra_cycles = self.lax(&opcode.mode);
+                }
+
                 0x85 | 0x95 | 0x8d | 0x9d | 0x99 | 0x81 | 0x91 => {
                     self.sta(&opcode.mode);
                 }
 
-                // STX
                 0x86 | 0x96 | 0x8e => {
                     self.stx(&opcode.mode);
                 }
 
-                // STY
                 0x84 | 0x94 | 0x8c => {
                     self.sty(&opcode.mode);
                 }
 
-                // TAX
+                0x87 | 0x97 | 0x8F | 0x83 | 0x93 => {
+                    self.sax(&opcode.mode);
+                }
+
                 0xAA => self.tax(),
-                // TAY
                 0xa8 => self.tay(),
-                // TXA
                 0x8a => self.txa(),
-                // TYA
                 0x98 => self.tya(),
 
-                // TSX
                 0xba => self.tsx(),
-                // TXS
                 0x9a => self.txs(),
-                // PHA
+
                 0x48 => self.pha(),
-                // PHP
                 0x08 => self.php(),
-                // PLA
                 0x68 => self.pla(),
-                // PLP
                 0x28 => self.plp(),
 
-                // AND
                 0x29 | 0x25 | 0x35 | 0x2D | 0x3D | 0x39 | 0x21 | 0x31 => {
                     extra_cycles = self.and(&opcode.mode);
                 }
 
-                // EOR
                 0x49 | 0x45 | 0x55 | 0x4D | 0x5D | 0x59 | 0x41 | 0x51 => {
                     extra_cycles = self.eor(&opcode.mode);
                 }
 
-                // ORA
                 0x09 | 0x05 | 0x15 | 0x0D | 0x1D | 0x19 | 0x01 | 0x11 => {
                     extra_cycles = self.ora(&opcode.mode);
                 }
 
-                // BIT
                 0x24 | 0x2C => {
                     self.bit(&opcode.mode);
                 }
 
-                // ADC
                 0x69 | 0x65 | 0x75 | 0x6D | 0x7D | 0x79 | 0x61 | 0x71 => {
                     extra_cycles = self.adc(&opcode.mode);
                 }
 
-                // SBC
-                0xE9 | 0xE5 | 0xF5 | 0xED | 0xFD | 0xF9 | 0xE1 | 0xF1 => {
+                0xE9 | 0xE5 | 0xF5 | 0xED | 0xFD | 0xF9 | 0xE1 | 0xF1 | 0xEB => {
                     extra_cycles = self.sbc(&opcode.mode);
                 }
 
@@ -659,71 +718,78 @@ impl<'a> CPU<'a> {
                     extra_cycles = self.compare(&opcode.mode, self.register_y);
                 }
 
-                // INC
                 0xe6 | 0xf6 | 0xee | 0xfe => {
                     self.inc(&opcode.mode);
                 }
 
-                // INX
                 0xE8 => self.inx(),
 
-                // INY
                 0xC8 => self.iny(),
 
-                // DEC
                 0xc6 | 0xd6 | 0xce | 0xde => {
                     self.dec(&opcode.mode);
                 }
 
-                // DEX
                 0xca => self.dex(),
 
-                // DEY
                 0x88 => self.dey(),
 
-                // ASL accumulator
+                0xC7 | 0xD7 | 0xCF | 0xDF | 0xDB | 0xC3 | 0xD3 => {
+                    self.dcp(&opcode.mode);
+                }
+
+                0xE7 | 0xF7 | 0xEF | 0xFF | 0xFB | 0xE3 | 0xF3 => {
+                    self.isb(&opcode.mode);
+                }
+
                 0x0A => {
                     self.asl_accumulator();
                 }
-                // ASL
                 0x06 | 0x16 | 0x0E | 0x1E => {
                     self.asl(&opcode.mode);
                 }
 
-                // LSR accumulator
                 0x4a => {
                     self.lsr_accumulator();
                 }
-                // LSR
                 0x46 | 0x56 | 0x4e | 0x5e => {
                     self.lsr(&opcode.mode);
                 }
 
-                // ROL accumulator
                 0x2a => self.rol_accumulator(),
-                // ROL
                 0x26 | 0x36 | 0x2e | 0x3e | 0x22 | 0x32 => {
                     self.rol(&opcode.mode);
                 }
 
-                // ROR accumulator
                 0x6a => self.ror_accumulator(),
-                // ROR
                 0x66 | 0x76 | 0x6e | 0x7e | 0x62 | 0x72 => {
                     self.ror(&opcode.mode);
                 }
 
-                // JMP
+                0x07 | 0x17 | 0x0F | 0x1F | 0x1B | 0x03 | 0x13 => {
+                    self.slo(&opcode.mode);
+                }
+
+                0x27 | 0x37 | 0x2F | 0x3F | 0x3B | 0x23 | 0x33 => {
+                    self.rla(&opcode.mode);
+                }
+
+                0x47 | 0x57 | 0x4F | 0x5F | 0x5B | 0x43 | 0x53 => {
+                    self.sre(&opcode.mode);
+                }
+
+                0x67 | 0x77 | 0x6F | 0x7F | 0x7B | 0x63 | 0x73 => {
+                    self.rra(&opcode.mode);
+                }
+
                 0x4c | 0x6c => {
                     self.jmp(&opcode.mode);
                 }
 
-                // JSR
                 0x20 => {
                     self.jsr(&opcode.mode);
                 }
 
-                // RTS
                 0x60 => {
                     self.rts();
                 }
@@ -792,9 +858,15 @@ impl<'a> CPU<'a> {
 
                 // BRK
                 0x00 => return,
+
                 // NOP
-                0xea => (),
-                // RTI
+                0xea | 0x1A | 0x3A | 0x5A | 0x7A | 0xDA | 0xFA | 0x04 | 0x44 | 0x64 | 0x0C
+                | 0x14 | 0x34 | 0x54 | 0x74 | 0xD4 | 0xF4 | 0x80 | 0x82 | 0x89 | 0xC2 | 0xE2 => (),
+
+                0x1C | 0x3C | 0x5C | 0x7C | 0xDC | 0xFC => {
+                    extra_cycles += self.read_nop(&opcode.mode);
+                }
+
                 0x40 => self.rti(),
 
                 _ => todo!(),

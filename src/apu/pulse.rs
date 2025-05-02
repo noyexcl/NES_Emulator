@@ -3,11 +3,20 @@ use super::{
     timer::Timer,
 };
 
-const DUTY_TABLE: [[u8; 8]; 4] = [
+/*
+pub const DUTY_TABLE: [[u8; 8]; 4] = [
     [0, 1, 0, 0, 0, 0, 0, 0],
     [0, 1, 1, 0, 0, 0, 0, 0],
-    [0, 1, 1, 1, 0, 0, 0, 0],
+    [0, 1, 1, 1, 1, 0, 0, 0],
     [1, 0, 0, 1, 1, 1, 1, 1],
+];
+*/
+
+const DUTY_TABLE: [[u8; 8]; 4] = [
+    [0, 0, 0, 0, 0, 0, 0, 1],
+    [0, 0, 0, 0, 0, 0, 1, 1],
+    [0, 0, 0, 0, 1, 1, 1, 1],
+    [1, 1, 1, 1, 1, 1, 0, 0],
 ];
 
 //               Sweep -----> Timer
@@ -20,18 +29,18 @@ const DUTY_TABLE: [[u8; 8]; 4] = [
 //                v            v             v
 // Envelope ---> Gate -----> Gate -------> Gate --->(to mixer)
 pub struct Pulse {
-    envelop: Envelope,
+    envelope: Envelope,
     sweep: Sweep,
     timer: Timer,
     sequencer: Sequencer,
-    length_counter: LengthCounter,
+    pub length_counter: LengthCounter,
     duty: u8,
 }
 
 impl Pulse {
     pub fn new(is_channel1: bool) -> Self {
         Self {
-            envelop: Envelope::new(),
+            envelope: Envelope::new(),
             sweep: Sweep::new(is_channel1),
             timer: Timer::new(),
             sequencer: Sequencer::new(8),
@@ -40,14 +49,14 @@ impl Pulse {
         }
     }
 
-    pub fn tick_timer(&mut self) {
+    pub fn apu_tick(&mut self) {
         if self.timer.tick() {
             self.sequencer.clock();
         }
     }
 
     pub fn clock_quarter_frame(&mut self) {
-        self.envelop.clock();
+        self.envelope.clock();
     }
 
     pub fn clock_half_frame(&mut self) {
@@ -58,8 +67,9 @@ impl Pulse {
 
     pub fn sample(&self) -> u8 {
         if !self.sweep.mute && self.length_counter.is_active() {
-            DUTY_TABLE[self.duty as usize][self.sequencer.current_step]
-                * self.envelop.current_volume()
+            let output = DUTY_TABLE[self.duty as usize][self.sequencer.current_step]
+                * self.envelope.current_volume();
+            output
         } else {
             0
         }
@@ -73,33 +83,33 @@ impl Pulse {
         self.length_counter.is_active()
     }
 
+    /// $4000/$4004 Pulse Main Register (DDLC VVVV)
+    ///
+    /// D: Duty Cycle \
+    /// L: Loop. If set, its counter will not decrease, Resulting in a tone that plays continuously. \
+    /// C: Const Volume. If set, the sweep will not change its volume over time. \
+    /// V: Volume(C=1) or Envelope(C=0).
     pub fn write_main_register(&mut self, value: u8) {
-        // Pulse Main Register (DDLC VVVV)
-        // DD: Duty Cycle
-        // L : Loop. If set, its counter will not decrease,
-        //     Resulting in a tone that plays continuously.
-        // C : Const Volume. If set, the sweep will not change its volume over time.
-        // VVVV : Volume(C=1) or Envelope(C=0).
-
         // Changing duty doesn't affect current sequencer step
         self.duty = value >> 6;
 
         let halt_and_loop = (value & 0b0010_0000) != 0;
-        self.length_counter.halted = halt_and_loop;
-        self.envelop.looping = halt_and_loop;
+        self.length_counter.set_halted(halt_and_loop);
+        self.envelope.looping = halt_and_loop;
 
-        self.envelop.constant_volume = (value & 0b0001_0000) != 0;
-        self.envelop.period = value & 0b0000_1111;
+        self.envelope.constant_volume = (value & 0b0001_0000) != 0;
+        self.envelope.period = value & 0b0000_1111;
     }
 
+    /// $4001/$4005 Sweep Register (EPPP NSSS)
+    ///
+    /// E: Enable \
+    /// P: Period \
+    /// N: Negate \
+    /// S: Shift
     pub fn write_sweep_register(&mut self, value: u8) {
-        // Sweep Register (EPPP NSSS)
-        // E: Enable
-        // P: Period
-        // N: Negate
-        // S: Shift
         self.sweep.enabled = (value & 0b1000_0000) != 0;
-        self.sweep.period = (value >> 4) & 0b0000_0111;
+        self.sweep.period = (value & 0b0111_0000) >> 4;
         self.sweep.negate = (value & 0b0000_1000) != 0;
         self.sweep.shift = value & 0b0000_0111;
 
@@ -107,18 +117,22 @@ impl Pulse {
         self.sweep.reload = true;
     }
 
+    /// $4002/$4006 Timer lower bits (TTTT TTTT)
     pub fn write_timer_lo(&mut self, value: u8) {
         self.timer.period = (self.timer.period & 0xFF00) | value as u16;
     }
 
+    /// $4003/$4007 Length & Timer upper bits (LLLL LTTT)
+    ///
+    /// L: Length \
+    /// T: Timer upper bits \
+    /// Side effect: Reset sequencer, set envelope's start flag
     pub fn write_timer_hi_and_length(&mut self, value: u8) {
-        // Length & Timer upper bits (LLLL LTTT)
         self.timer.period = (self.timer.period & 0x00FF) | ((value as u16 & 0b0000_0111) << 8);
         self.length_counter.set_length(value >> 3);
 
-        // Side effect of writing to timer & length register
         self.sequencer.current_step = 0;
-        self.envelop.start_flag = true;
+        self.envelope.start_flag = true;
     }
 }
 
@@ -132,10 +146,10 @@ mod tests {
         p.write_main_register(0b1110_1000);
 
         assert_eq!(p.duty, 0b11);
-        assert!(p.envelop.looping);
+        assert!(p.envelope.looping);
         assert!(p.length_counter.halted);
-        assert!(!p.envelop.constant_volume);
-        assert_eq!(p.envelop.period, 0b1000);
+        assert!(!p.envelope.constant_volume);
+        assert_eq!(p.envelope.period, 0b1000);
     }
 
     #[test]
