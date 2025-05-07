@@ -984,5 +984,4 @@ pub enum AddressingMode {
 }
 
 #[cfg(test)]
-#[path = "cpu_tests.rs"]
 mod tests;
