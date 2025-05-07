@@ -1,3 +1,4 @@
+#[derive(Debug)]
 pub struct ScrollRegister {
     pub x: u8,
     pub y: u8,

@@ -14,6 +14,7 @@ pub struct Rom {
     pub prg_rom: Vec<u8>,
     pub chr_rom: Vec<u8>,
     pub mapper: u8,
+    pub wram: bool,
     pub screen_mirroring: Mirroring,
 }
 
@@ -37,8 +38,13 @@ impl Rom {
             (false, false) => Mirroring::Horizontal,
         };
 
+        let wram = raw[6] & 0b10 != 0;
         let prg_rom_size = raw[4] as usize * PRG_ROM_PAGE_SIZE;
         let chr_rom_size = raw[5] as usize * CHR_ROM_PAGE_SIZE;
+
+        if chr_rom_size == 0 {
+            println!("Warning: CHR ROM size is 0. This may cause issues.");
+        }
 
         let skip_trainer = raw[6] & 0b100 != 0;
 
@@ -49,6 +55,7 @@ impl Rom {
             prg_rom: raw[prg_rom_start..(prg_rom_start + prg_rom_size)].to_vec(),
             chr_rom: raw[chr_rom_start..(chr_rom_start + chr_rom_size)].to_vec(),
             mapper,
+            wram,
             screen_mirroring,
         })
     }

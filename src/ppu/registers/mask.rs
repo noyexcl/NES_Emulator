@@ -19,6 +19,7 @@ bitflags! {
     // ||+------- Emphasize red (green on PAL/Dendy)
     // |+-------- Emphasize green (red on PAL/Dendy)
     // +--------- Emphasize blue
+    #[derive(Debug)]
     pub struct MaskRegister: u8 {
         const GREYSCALE        = 0b0000_0001;
         const LEFTMOST_OBJ     = 0b0000_0010;

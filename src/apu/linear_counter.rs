@@ -1,3 +1,4 @@
+#[derive(Debug)]
 pub struct LinearCounter {
     counter: u8,
     pub period: u8,

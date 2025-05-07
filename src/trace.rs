@@ -13,16 +13,10 @@ const UNOFFICIAL_OPCODES: [u8; 80] = [
     0x23, 0x33, 0x47, 0x57, 0x4F, 0x5F, 0x5B, 0x43, 0x53, 0x67, 0x77, 0x6F, 0x7F, 0x7B, 0x63, 0x73,
 ];
 
-const WRITE_ONLY_ADDRESS: [u16; 14] = [
-    0x2000, 0x2001, 0x2002, 0x2003, 0x2004, 0x2005, 0x2006, 0x2007, 0x4004,
-    0x4015, /*It's not actually*/
-    0x4004, 0x4005, 0x4006, 0x4007,
-];
-
-pub fn trace(cpu: &mut CPU) -> String {
+pub fn trace(cpu: &CPU) -> String {
     let mut result = String::new();
     let opcode_table: &HashMap<u8, &'static opcodes::OpCode> = &opcodes::OPCODES_MAP;
-    let code = cpu.bus.mem_read(cpu.program_counter);
+    let code = cpu.bus.get_state_at(cpu.program_counter);
     let opcode = opcode_table
         .get(&code)
         .unwrap_or_else(|| panic!("OpCode {:02X} is not recognized", code));
@@ -37,13 +31,13 @@ pub fn trace(cpu: &mut CPU) -> String {
     } else if opcode.len == 2 {
         result.push_str(&format!(
             "{:02X}    ",
-            cpu.bus.mem_read(cpu.program_counter + 1)
+            cpu.bus.get_state_at(cpu.program_counter + 1)
         ));
     } else if opcode.len == 3 {
         result.push_str(&format!(
             "{:02X} {:02X} ",
-            cpu.bus.mem_read(cpu.program_counter + 1),
-            cpu.bus.mem_read(cpu.program_counter + 2)
+            cpu.bus.get_state_at(cpu.program_counter + 1),
+            cpu.bus.get_state_at(cpu.program_counter + 2)
         ));
     }
 
@@ -58,22 +52,22 @@ pub fn trace(cpu: &mut CPU) -> String {
     // mnemonic & formatted operand
     match opcode.mode {
         AddressingMode::Immediate => {
-            let value = cpu.bus.mem_read(cpu.program_counter + 1);
+            let value = cpu.bus.get_state_at(cpu.program_counter + 1);
 
             // mnemonic & value with format
             result.push_str(&format!("{:28}", format!("#${:02X}", value)));
         }
         AddressingMode::ZeroPage => {
             let addr = get_operand_address(cpu, &opcode.mode);
-            let value = read_value(cpu, addr);
+            let value = cpu.bus.get_state_at(addr);
 
             // mnemonic & addr with format
             result.push_str(&format!("{:28}", format!("${:02X} = {:02X}", addr, value)));
         }
         AddressingMode::ZeroPage_X => {
-            let base = cpu.bus.mem_read(cpu.program_counter + 1);
+            let base = cpu.bus.get_state_at(cpu.program_counter + 1);
             let addr = get_operand_address(cpu, &opcode.mode);
-            let value = read_value(cpu, addr);
+            let value = cpu.bus.get_state_at(addr);
 
             result.push_str(&format!(
                 "{:28}",
@@ -82,9 +76,9 @@ pub fn trace(cpu: &mut CPU) -> String {
         }
 
         AddressingMode::ZeroPage_Y => {
-            let base = cpu.bus.mem_read(cpu.program_counter + 1);
+            let base = cpu.bus.get_state_at(cpu.program_counter + 1);
             let addr = get_operand_address(cpu, &opcode.mode);
-            let value = read_value(cpu, addr);
+            let value = cpu.bus.get_state_at(addr);
 
             result.push_str(&format!(
                 "{:28}",
@@ -93,7 +87,7 @@ pub fn trace(cpu: &mut CPU) -> String {
         }
         AddressingMode::Absolute => {
             let addr = get_operand_address(cpu, &opcode.mode);
-            let value = read_value(cpu, addr);
+            let value = cpu.bus.get_state_at(addr);
 
             match opcode.code {
                 // JMP系の命令の場合、値は表示しない
@@ -106,12 +100,12 @@ pub fn trace(cpu: &mut CPU) -> String {
             }
         }
         AddressingMode::Absolute_X => {
-            let lo = cpu.bus.mem_read(cpu.program_counter + 1) as u16;
-            let hi = cpu.bus.mem_read(cpu.program_counter + 2) as u16;
+            let lo = cpu.bus.get_state_at(cpu.program_counter + 1) as u16;
+            let hi = cpu.bus.get_state_at(cpu.program_counter + 2) as u16;
             let addr = (hi << 8) | lo;
 
             let indexed_addr = addr.wrapping_add(cpu.register_x as u16);
-            let value = cpu.bus.mem_read(indexed_addr);
+            let value = cpu.bus.get_state_at(indexed_addr);
 
             result.push_str(&format!(
                 "{:28}",
@@ -119,12 +113,12 @@ pub fn trace(cpu: &mut CPU) -> String {
             ));
         }
         AddressingMode::Absolute_Y => {
-            let lo = cpu.bus.mem_read(cpu.program_counter + 1) as u16;
-            let hi = cpu.bus.mem_read(cpu.program_counter + 2) as u16;
+            let lo = cpu.bus.get_state_at(cpu.program_counter + 1) as u16;
+            let hi = cpu.bus.get_state_at(cpu.program_counter + 2) as u16;
             let addr = (hi << 8) | lo;
 
             let indexed_addr = addr.wrapping_add(cpu.register_y as u16);
-            let value = cpu.bus.mem_read(indexed_addr);
+            let value = cpu.bus.get_state_at(indexed_addr);
 
             result.push_str(&format!(
                 "{:28}",
@@ -132,8 +126,8 @@ pub fn trace(cpu: &mut CPU) -> String {
             ));
         }
         AddressingMode::Indirect => {
-            let lo = cpu.bus.mem_read(cpu.program_counter + 1) as u16;
-            let hi = cpu.bus.mem_read(cpu.program_counter + 2) as u16;
+            let lo = cpu.bus.get_state_at(cpu.program_counter + 1) as u16;
+            let hi = cpu.bus.get_state_at(cpu.program_counter + 2) as u16;
             let addr = (hi << 8) | lo;
 
             let jmp_addr = get_operand_address(cpu, &opcode.mode);
@@ -144,9 +138,9 @@ pub fn trace(cpu: &mut CPU) -> String {
             ));
         }
         AddressingMode::Indirect_X => {
-            let base = cpu.bus.mem_read(cpu.program_counter + 1);
+            let base = cpu.bus.get_state_at(cpu.program_counter + 1);
             let addr = get_operand_address(cpu, &opcode.mode);
-            let value = cpu.bus.mem_read(addr);
+            let value = cpu.bus.get_state_at(addr);
 
             result.push_str(&format!(
                 "{:28}",
@@ -160,10 +154,10 @@ pub fn trace(cpu: &mut CPU) -> String {
             ));
         }
         AddressingMode::Indirect_Y => {
-            let base = cpu.bus.mem_read(cpu.program_counter + 1);
+            let base = cpu.bus.get_state_at(cpu.program_counter + 1);
             let addr = get_operand_address(cpu, &opcode.mode);
             let addr_before_indexed = addr.wrapping_sub(cpu.register_y as u16);
-            let value = read_value(cpu, addr);
+            let value = cpu.bus.get_state_at(addr);
 
             result.push_str(&format!(
                 "{:28}",
@@ -176,7 +170,7 @@ pub fn trace(cpu: &mut CPU) -> String {
         AddressingMode::NoneAddressing => match opcode.code {
             // ブランチ系のRelativeアドレッシングモードでは、ジャンプ先のアドレスを計算して表示する
             0x90 | 0xB0 | 0xF0 | 0x30 | 0xD0 | 0x10 | 0x50 | 0x70 => {
-                let offset = cpu.mem_read(cpu.program_counter + 1) as i8 as i16;
+                let offset = cpu.bus.get_state_at(cpu.program_counter + 1) as i8 as i16;
                 let jmp_addr = ((cpu.program_counter + 2) as i16).wrapping_add(offset) as u16;
 
                 result.push_str(&format!("{:28}", format!("${:04X}", jmp_addr)));
@@ -210,28 +204,28 @@ pub fn trace(cpu: &mut CPU) -> String {
     result
 }
 
-fn get_operand_address(cpu: &mut CPU, mode: &AddressingMode) -> u16 {
+fn get_operand_address(cpu: &CPU, mode: &AddressingMode) -> u16 {
     let counter = cpu.program_counter + 1;
 
     match mode {
         AddressingMode::Immediate => counter,
-        AddressingMode::ZeroPage => cpu.mem_read(counter) as u16,
-        AddressingMode::Absolute => cpu.mem_read_u16(counter),
+        AddressingMode::ZeroPage => cpu.bus.get_state_at(counter) as u16,
+        AddressingMode::Absolute => cpu.bus.get_state_at_u16(counter),
 
         AddressingMode::ZeroPage_X => {
-            let pos = cpu.mem_read(counter);
+            let pos = cpu.bus.get_state_at(counter);
             pos.wrapping_add(cpu.register_x) as u16
         }
         AddressingMode::ZeroPage_Y => {
-            let pos = cpu.mem_read(counter);
+            let pos = cpu.bus.get_state_at(counter);
             pos.wrapping_add(cpu.register_y) as u16
         }
         AddressingMode::Absolute_X => {
-            let pos = cpu.mem_read(counter);
+            let pos = cpu.bus.get_state_at(counter);
             pos.wrapping_add(cpu.register_x) as u16
         }
         AddressingMode::Absolute_Y => {
-            let base = cpu.mem_read_u16(counter);
+            let base = cpu.bus.get_state_at_u16(counter);
             base.wrapping_add(cpu.register_y as u16)
         }
         AddressingMode::Indirect => {
@@ -240,43 +234,35 @@ fn get_operand_address(cpu: &mut CPU, mode: &AddressingMode) -> u16 {
             // 本来は、$30FFにある値(下位バイト)と$3100(上位バイト)にある値を参照しなければならないが
             // $30FF(下位バイト)と$3000(上位バイト)の値を参照してしまう
             // ここではそれを再現している
-            let addr = cpu.mem_read_u16(counter);
+            let addr = cpu.bus.get_state_at_u16(counter);
 
             // 対象のアドレスがFFで終わる場合、つまりページをまたぐ場合はバグを再現
             if addr & 0x00FF == 0x00FF {
-                let lo = cpu.mem_read(addr);
-                let hi = cpu.mem_read(addr & 0xFF00);
+                let lo = cpu.bus.get_state_at(addr);
+                let hi = cpu.bus.get_state_at(addr & 0xFF00);
                 (hi as u16) << 8 | (lo as u16)
             } else {
-                cpu.mem_read_u16(addr)
+                cpu.bus.get_state_at_u16(addr)
             }
         }
         AddressingMode::Indirect_X => {
-            let base = cpu.mem_read(counter);
+            let base = cpu.bus.get_state_at(counter);
 
             let ptr: u8 = base.wrapping_add(cpu.register_x);
-            let lo = cpu.mem_read(ptr as u16);
-            let hi = cpu.mem_read(ptr.wrapping_add(1) as u16);
+            let lo = cpu.bus.get_state_at(ptr as u16);
+            let hi = cpu.bus.get_state_at(ptr.wrapping_add(1) as u16);
             (hi as u16) << 8 | (lo as u16)
         }
         AddressingMode::Indirect_Y => {
-            let base: u8 = cpu.mem_read(counter);
-            let lo = cpu.mem_read(base as u16);
-            let hi = cpu.mem_read(base.wrapping_add(1) as u16);
+            let base: u8 = cpu.bus.get_state_at(counter);
+            let lo = cpu.bus.get_state_at(base as u16);
+            let hi = cpu.bus.get_state_at(base.wrapping_add(1) as u16);
             let deref_base = (hi as u16) << 8 | (lo as u16);
             deref_base.wrapping_add(cpu.register_y as u16)
         }
         AddressingMode::NoneAddressing => {
             panic!("mode {:?} is not supported", mode);
         }
-    }
-}
-
-fn read_value(cpu: &mut CPU, addr: u16) -> u8 {
-    if WRITE_ONLY_ADDRESS.contains(&addr) {
-        0xFF
-    } else {
-        cpu.bus.mem_read(addr)
     }
 }
 

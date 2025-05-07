@@ -4,6 +4,7 @@ const LENGTH_TABLE: [u8; 32] = [
     192, 24, 72, 26, 16, 28, 32, 30,
 ];
 
+#[derive(Debug)]
 pub struct LengthCounter {
     enabled: bool,
     pub halted: bool,
@@ -84,11 +85,14 @@ mod tests {
     #[test]
     fn test_set_length() {
         let mut l = LengthCounter::new();
+        l.set_enabled(true);
         l.set_length(0x1f);
+        l.reload();
 
         assert_eq!(l.counter, 30);
 
         l.set_length(0x01);
+        l.reload();
 
         assert_eq!(l.counter, 254);
     }

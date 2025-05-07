@@ -28,6 +28,7 @@ const DUTY_TABLE: [[u8; 8]; 4] = [
 //                |            |             |
 //                v            v             v
 // Envelope ---> Gate -----> Gate -------> Gate --->(to mixer)
+#[derive(Debug)]
 pub struct Pulse {
     envelope: Envelope,
     sweep: Sweep,
@@ -144,6 +145,7 @@ mod tests {
     fn test_write_main_register() {
         let mut p = Pulse::new(true);
         p.write_main_register(0b1110_1000);
+        p.length_counter.reload();
 
         assert_eq!(p.duty, 0b11);
         assert!(p.envelope.looping);
@@ -166,8 +168,10 @@ mod tests {
     #[test]
     fn test_write_timer_and_length() {
         let mut p = Pulse::new(true);
+        p.set_enabled(true);
         p.write_timer_lo(0b1010_1010);
         p.write_timer_hi_and_length(0b0000_0111);
+        p.length_counter.reload();
 
         assert_eq!(p.timer.period, 0b111_1010_1010);
         assert!(p.length_counter.is_active());

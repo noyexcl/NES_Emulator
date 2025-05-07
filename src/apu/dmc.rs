@@ -17,6 +17,7 @@ use super::timer::Timer;
 //    それ以外にも$4011への書き込みで直接値を設定することも出来る
 //    Output level は 7bit の値であり、チャンネルが有効か無効かに関わらずミキサに送られる
 #[allow(clippy::upper_case_acronyms)]
+#[derive(Debug)]
 pub struct DMC {
     timer: Timer,
     sample_buffer: u8,

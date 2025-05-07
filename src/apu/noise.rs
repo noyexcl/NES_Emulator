@@ -1,5 +1,6 @@
 use super::{envelope::Envelope, length_counter::LengthCounter, timer::Timer};
 
+#[derive(Debug)]
 pub struct Noise {
     timer: Timer,
     envelope: Envelope,

@@ -1,5 +1,6 @@
 /// 時間とともに変化するパラメータを再現する \
 /// パラメータは15段階あり、一定期間が経過すると1ずつ減衰していく
+#[derive(Debug)]
 pub struct Envelope {
     counter: u8,
     pub period: u8,

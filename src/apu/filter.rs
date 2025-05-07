@@ -1,5 +1,6 @@
 use std::f64::consts::{PI, TAU};
 
+#[derive(Debug)]
 pub struct FirstOrderFilter {
     b0: f64,
     b1: f64,

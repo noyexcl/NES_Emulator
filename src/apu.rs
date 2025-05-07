@@ -23,6 +23,7 @@ use triangle::Triangle;
 use crate::rom::Rom;
 
 #[allow(clippy::upper_case_acronyms)]
+#[derive(Debug)]
 pub struct APU {
     buffer: Vec<i16>,
     pulse1: Pulse,

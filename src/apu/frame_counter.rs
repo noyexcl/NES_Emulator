@@ -11,6 +11,7 @@ pub enum FrameType {
     Half,
 }
 
+#[derive(Debug)]
 pub struct FrameCounter {
     mode: Mode,
     counter: u32,

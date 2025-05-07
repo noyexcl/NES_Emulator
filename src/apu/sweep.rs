@@ -1,5 +1,6 @@
 use super::timer::Timer;
 
+#[derive(Debug)]
 pub struct Sweep {
     pub mute: bool,
     pub enabled: bool,

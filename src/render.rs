@@ -4,12 +4,7 @@ pub mod palette;
 use crate::{ppu::PPU, rom::Mirroring};
 use frame::Frame;
 
-fn bg_palette(
-    ppu: &PPU,
-    attribute_table: &[u8],
-    tile_column: usize,
-    tile_row: usize,
-) -> [u8; 4] {
+fn bg_palette(ppu: &PPU, attribute_table: &[u8], tile_column: usize, tile_row: usize) -> [u8; 4] {
     let attr_table_idx = tile_row / 4 * 8 + tile_column / 4;
     let attr_byte = attribute_table[attr_table_idx];
 
@@ -69,8 +64,7 @@ fn render_name_table(
         let tile_column = i % 32;
         let tile_row = i / 32;
         let tile_idx = name_table[i] as u16;
-        let tile =
-            &ppu.chr_rom[(bank + tile_idx * 16) as usize..=(bank + tile_idx * 16 + 15) as usize];
+        let tile = ppu.get_tile_data(tile_idx);
         let palette = bg_palette(ppu, attribute_table, tile_column, tile_row);
 
         for y in 0..=7 {
@@ -167,8 +161,7 @@ pub fn render(ppu: &PPU, frame: &mut Frame) {
 
         let bank: u16 = ppu.ctrl.sprite_pattern_addr();
 
-        let tile =
-            &ppu.chr_rom[(bank + tile_idx * 16) as usize..=(bank + tile_idx * 16 + 15) as usize];
+        let tile = ppu.get_tile_data(tile_idx);
 
         for y in 0..=7 {
             let mut lower_bits = tile[y];

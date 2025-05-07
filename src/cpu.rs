@@ -1,6 +1,8 @@
+use tracing::trace;
+
 use crate::{bus::Bus, opcodes};
 use core::panic;
-use std::{collections::HashMap, ops::Add};
+use std::collections::HashMap;
 
 /// # Status Register (P) http://wiki.nesdev.com/w/index.php/Status_flags
 /// # unused flag(5) is always 1 because it's hardwired so.
@@ -529,22 +531,23 @@ impl<'a> CPU<'a> {
     }
 
     fn branch(&mut self, condition: bool) -> u8 {
-        let mut addnl_cycles = 0;
+        let mut extra_cycles = 0;
         if condition {
-            addnl_cycles += 1;
+            extra_cycles += 1;
             let offset = self.mem_read(self.program_counter) as i8;
-            let jump_addr = (self.program_counter as i16)
+            let jump_addr = self
+                .program_counter
                 .wrapping_add(1)
-                .wrapping_add(offset as i16) as u16;
+                .wrapping_add_signed(offset as i16);
 
             if self.program_counter.wrapping_add(1) & 0xFF00 != jump_addr & 0xFF00 {
-                addnl_cycles += 1;
+                extra_cycles += 1;
             }
 
             self.program_counter = jump_addr;
         }
 
-        addnl_cycles
+        extra_cycles
     }
 
     fn rti(&mut self) {

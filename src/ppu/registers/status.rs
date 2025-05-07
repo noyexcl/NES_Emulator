@@ -20,6 +20,7 @@ bitflags! {
     //            Set at dot 1 of line 241 (the line *after* the post-render
     //            line); cleared after reading $2002 and at dot 1 of the
     //            pre-render line.
+    #[derive(Debug)]
     pub struct StatusRegister: u8 {
         const NOTUSED         = 0b0000_0001;
         const NOTUSED2        = 0b0000_0010;

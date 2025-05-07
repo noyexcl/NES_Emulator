@@ -1,5 +1,7 @@
 use std::rc::Rc;
 
+use tracing::debug;
+
 use crate::{apu::APU, cpu::Mem, joypad::Joypad, ppu::PPU, rom::Rom};
 
 //  _______________ $10000  _______________
@@ -33,6 +35,7 @@ use crate::{apu::APU, cpu::Mem, joypad::Joypad, ppu::PPU, rom::Rom};
 #[allow(clippy::type_complexity)]
 pub struct Bus<'call> {
     cpu_vram: [u8; 2048],
+    wram: [u8; 2048], // TODO: implement this
     rom: Rc<Rom>,
     ppu: PPU,
     apu: APU,
@@ -55,6 +58,7 @@ impl<'call> Bus<'call> {
 
         Bus {
             cpu_vram: [0; 2048],
+            wram: [0; 2048],
             rom,
             ppu,
             apu,
@@ -68,9 +72,11 @@ impl<'call> Bus<'call> {
     pub fn tick(&mut self, cycles: u8) {
         self.cycles += cycles as usize;
 
-        let nmi_before = self.ppu.nmi_interrupt.is_some();
+        //let nmi_before = self.ppu.nmi_interrupt.is_some();
+        let frame_ready_before = self.ppu.frame_ready;
         self.ppu.tick(cycles * 3);
-        let nmi_after = self.ppu.nmi_interrupt.is_some();
+        // let nmi_after = self.ppu.nmi_interrupt.is_some();
+        let frame_ready_after = self.ppu.frame_ready;
 
         for _ in 0..cycles {
             self.apu.tick();
@@ -79,13 +85,57 @@ impl<'call> Bus<'call> {
         self.cpu_stall = self.apu.cpu_stall;
         self.apu.cpu_stall = 0;
 
-        if !nmi_before && nmi_after {
+        if !frame_ready_before && frame_ready_after {
             (self.gameloop_callback)(&self.ppu, &mut self.apu, &mut self.joypad);
         }
     }
 
     pub fn poll_nmi_status(&mut self) -> Option<u8> {
         self.ppu.nmi_interrupt.take()
+    }
+
+    /// Get current state of the address \
+    /// There is no side effect such as resetting status or clearing flags when reading certain registers \
+    /// This fucntion is intended to be used to log the value of the address
+    ///
+    /// If the address points to write-only region or meaningless value to read, it will return 0xFF  
+    pub fn get_state_at(&self, addr: u16) -> u8 {
+        match addr {
+            RAM..=RAM_MIRRORS_END => {
+                let mirror_down_addr = addr & 0b0000_0111_1111_1111;
+                self.cpu_vram[mirror_down_addr as usize]
+            }
+            0x2000 | 0x2001 | 0x2003 | 0x2005 | 0x2006 | 0x4014 => 0xFF,
+            0x2002 => {
+                // Get status directly instead of calling read_status() because it has side effects
+                self.ppu.status.bits()
+            }
+            0x2004 => self.ppu.read_oam_data(),
+            0x2007 => 0xFF, // 面倒くさいから無視する
+            0x4000..=0x4014 => 0xFF,
+            0x4015 => 0xFF,
+            0x4016 => 0xFF, // Ignore Joypad 1
+            0x4017 => 0xFF, // Ignore Joypad 2
+            0x6000..=0x7FFF => self.wram[(addr - 0x6000) as usize],
+            0x2008..=PPU_REGISTERS_MIRRORS_END => {
+                let mirror_down_addr = addr & 0b0010_0000_0000_0111;
+                self.get_state_at(mirror_down_addr)
+            }
+            0x8000..=0xFFFF => self.rom.read_prg_rom(addr),
+            _ => {
+                println!("Ignoring mem access(read) at {:x}", addr);
+                0xFF
+            }
+        }
+    }
+
+    /// Get current state of the address as u16
+    /// This function is intended to be used to log the value of the address
+    pub fn get_state_at_u16(&self, addr: u16) -> u16 {
+        let lo = self.get_state_at(addr) as u16;
+        let hi = self.get_state_at(addr + 1) as u16;
+
+        (hi << 8) | lo
     }
 }
 
@@ -107,11 +157,13 @@ impl Mem for Bus<'_> {
             0x2002 => self.ppu.read_status(),
             0x2004 => self.ppu.read_oam_data(),
             0x2007 => self.ppu.read_data(),
-            0x4000..=0x4014 => panic!("Attempt to read from write-only APU address {:x}", addr),
+            0x4000..=0x4014 => {
+                panic!("Attempt to read from write-only APU address {:x}", addr);
+            }
             0x4015 => self.apu.read_register(addr),
             0x4016 => self.joypad.read(),
             0x4017 => 0, // Ignore Joypad 2
-
+            0x6000..=0x7FFF => self.wram[(addr - 0x6000) as usize],
             0x2008..=PPU_REGISTERS_MIRRORS_END => {
                 let mirror_down_addr = addr & 0b0010_0000_0000_0111;
                 self.mem_read(mirror_down_addr)
@@ -178,8 +230,12 @@ impl Mem for Bus<'_> {
                 let mirror_down_addr = addr & 0b0010_0000_0000_0111;
                 self.mem_write(mirror_down_addr, data);
             }
+            0x6000..=0x7FFF => self.wram[(addr - 0x6000) as usize] = data,
             0x8000..=0xFFFF => {
-                panic!("Attempted to write to Cartridge ROM space")
+                debug!(
+                    "Attempted to write to Cartridge ROM space {:02X}, value: {:02X}",
+                    addr, data
+                );
             }
             _ => {
                 println!("Ignoring mem access(write) at {:x}", addr);

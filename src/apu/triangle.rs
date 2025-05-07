@@ -14,6 +14,7 @@ const TRIANGLE_WAVEFORM: [u8; 32] = [
 //             v                v
 // Timer ---> Gate ----------> Gate ---> Sequencer ---> (to mixer)
 //
+#[derive(Debug)]
 pub struct Triangle {
     timer: Timer,
     pub length_counter: LengthCounter,

@@ -7,9 +7,13 @@ use self::registers::{
 use crate::rom::Mirroring;
 
 #[allow(clippy::upper_case_acronyms)]
+#[derive(Debug)]
 pub struct PPU {
     pub nmi_interrupt: Option<u8>,
+    /// Set to true when NMI interrupt is occurred or a frame's worth of cycles has elapsed  
+    pub frame_ready: bool,
     pub chr_rom: Vec<u8>,
+    pub chr_ram: [u8; 2048],
     pub vram: [u8; 2048],
     pub palette_table: [u8; 32],
     pub mirroring: Mirroring,
@@ -29,6 +33,7 @@ impl PPU {
     pub fn new(chr_rom: Vec<u8>, mirroring: Mirroring) -> Self {
         PPU {
             chr_rom,
+            chr_ram: [0; 2048],
             palette_table: [0; 32],
             vram: [0; 2048],
             oam_data: [0; 64 * 4],
@@ -43,6 +48,7 @@ impl PPU {
             scanline: 0,
             cycles: 0,
             nmi_interrupt: None,
+            frame_ready: false,
         }
     }
 
@@ -67,10 +73,6 @@ impl PPU {
         }
     }
 
-    pub fn new_empty_rom() -> Self {
-        PPU::new(vec![0; 2048], Mirroring::Horizontal)
-    }
-
     pub fn write_to_ppu_addr(&mut self, value: u8) {
         self.addr.update(value);
     }
@@ -80,6 +82,7 @@ impl PPU {
         self.ctrl = ControlRegister::from_bits_truncate(value);
         if !before_nmi_status && self.ctrl.generate_vblank_nmi() && self.status.is_in_vblank() {
             self.nmi_interrupt = Some(1);
+            self.frame_ready = true;
         }
     }
 
@@ -128,16 +131,24 @@ impl PPU {
 
         match addr {
             0..=0x1fff => {
-                panic!("attempt to write to chr_rom(addr space 0..0x1fff). it's read only. requested = {:x}", addr)
+                // panic!("attempt to write to chr_rom(addr space 0..0x1fff). it's read only. requested = {:x}", addr)
                 // self.chr_rom[addr as usize] = value;
+                if self.chr_rom.is_empty() {
+                    tracing::debug!("writing to chr_ram at addr {:04X} = {:02X}", addr, value);
+                    self.chr_ram[addr as usize] = value;
+                } else {
+                    eprintln!("attempt to write to chr_rom(addr space 0..0x1fff). it's read only. requested = {:x}", addr)
+                }
             }
             0x2000..=0x2fff => {
                 self.vram[self.mirror_vram_addr(addr) as usize] = value;
             }
-            0x3000..=0x3eff => panic!(
-                "addr space 0x3000..0x3eff is not expected to be used, requested = {:x}",
-                addr
-            ),
+            0x3000..=0x3eff => {
+                panic!(
+                    "addr space 0x3000..0x3eff is not expected to be used, requested = {:x}",
+                    addr
+                )
+            }
             0x3f10 | 0x3f14 | 0x3f18 | 0x3f1c => {
                 let add_mirror = addr - 0x10;
                 self.palette_table[(add_mirror - 0x3f00) as usize] = value;
@@ -155,9 +166,15 @@ impl PPU {
 
         match addr {
             0..=0x1fff => {
-                let result = self.internal_data_buf;
-                self.internal_data_buf = self.chr_rom[addr as usize];
-                result
+                if self.chr_rom.is_empty() {
+                    let result = self.internal_data_buf;
+                    self.internal_data_buf = self.chr_ram[addr as usize];
+                    result
+                } else {
+                    let result = self.internal_data_buf;
+                    self.internal_data_buf = self.chr_rom[addr as usize];
+                    result
+                }
             }
             0x2000..=0x2fff => {
                 let result = self.internal_data_buf;
@@ -180,6 +197,17 @@ impl PPU {
         }
     }
 
+    pub fn get_tile_data(&self, tile_index: u16) -> &[u8] {
+        let bank = self.ctrl.background_pattern_addr();
+        if self.chr_rom.is_empty() {
+            &self.chr_ram
+                [(bank + tile_index * 16) as usize..=(bank + tile_index * 16 + 15) as usize]
+        } else {
+            &self.chr_rom
+                [(bank + tile_index * 16) as usize..=(bank + tile_index * 16 + 15) as usize]
+        }
+    }
+
     pub fn tick(&mut self, cycles: u8) -> bool {
         self.cycles += cycles as usize;
         if self.cycles >= 341 {
@@ -197,11 +225,14 @@ impl PPU {
                 if self.ctrl.generate_vblank_nmi() {
                     self.nmi_interrupt = Some(1);
                 }
+
+                self.frame_ready = true;
             }
 
             if self.scanline >= 262 {
                 self.scanline = 0;
                 self.nmi_interrupt = None;
+                self.frame_ready = false;
                 self.status.set_sprite_zero_hit(false);
                 self.status.reset_vblank_status();
                 return true;
@@ -224,7 +255,7 @@ pub mod test {
 
     #[test]
     fn test_ppu_vram_writes() {
-        let mut ppu = PPU::new_empty_rom();
+        let mut ppu = PPU::new(vec![0; 2048], Mirroring::Horizontal);
         ppu.write_to_ppu_addr(0x23);
         ppu.write_to_ppu_addr(0x05);
         ppu.write_to_data(0x66);
@@ -234,7 +265,7 @@ pub mod test {
 
     #[test]
     fn test_ppu_vram_reads() {
-        let mut ppu = PPU::new_empty_rom();
+        let mut ppu = PPU::new(vec![0; 2048], Mirroring::Horizontal);
         ppu.write_to_ctrl(0);
         ppu.vram[0x0305] = 0x66;
 
@@ -248,7 +279,7 @@ pub mod test {
 
     #[test]
     fn test_ppu_vram_reads_cross_page() {
-        let mut ppu = PPU::new_empty_rom();
+        let mut ppu = PPU::new(vec![0; 2048], Mirroring::Horizontal);
         ppu.write_to_ctrl(0);
         ppu.vram[0x01ff] = 0x66;
         ppu.vram[0x0200] = 0x77;
@@ -263,7 +294,7 @@ pub mod test {
 
     #[test]
     fn test_ppu_vram_reads_step_32() {
-        let mut ppu = PPU::new_empty_rom();
+        let mut ppu = PPU::new(vec![0; 2048], Mirroring::Horizontal);
         ppu.write_to_ctrl(0b100);
         ppu.vram[0x01ff] = 0x66;
         ppu.vram[0x01ff + 32] = 0x77;
@@ -283,7 +314,7 @@ pub mod test {
     //   [0x2800 B ] [0x2C00 b ]
     #[test]
     fn test_vram_horizontal_mirror() {
-        let mut ppu = PPU::new_empty_rom();
+        let mut ppu = PPU::new(vec![0; 2048], Mirroring::Horizontal);
         ppu.write_to_ppu_addr(0x24);
         ppu.write_to_ppu_addr(0x05);
 
@@ -339,7 +370,7 @@ pub mod test {
 
     #[test]
     fn test_read_status_resets_latch() {
-        let mut ppu = PPU::new_empty_rom();
+        let mut ppu = PPU::new(vec![0; 2048], Mirroring::Horizontal);
         ppu.vram[0x0305] = 0x66;
 
         ppu.write_to_ppu_addr(0x21);
@@ -360,7 +391,7 @@ pub mod test {
 
     #[test]
     fn test_ppu_vram_mirroring() {
-        let mut ppu = PPU::new_empty_rom();
+        let mut ppu = PPU::new(vec![0; 2048], Mirroring::Horizontal);
         ppu.write_to_ctrl(0);
         ppu.vram[0x0305] = 0x66;
 
@@ -374,7 +405,7 @@ pub mod test {
 
     #[test]
     fn test_read_status_resets_vblank() {
-        let mut ppu = PPU::new_empty_rom();
+        let mut ppu = PPU::new(vec![0; 2048], Mirroring::Horizontal);
         ppu.status.set_vblank_status(true);
 
         let status = ppu.read_status();
@@ -385,7 +416,7 @@ pub mod test {
 
     #[test]
     fn test_oam_read_write() {
-        let mut ppu = PPU::new_empty_rom();
+        let mut ppu = PPU::new(vec![0; 2048], Mirroring::Horizontal);
         ppu.write_to_oam_addr(0x10);
         ppu.write_to_oam_data(0x66);
         ppu.write_to_oam_data(0x77);
@@ -399,7 +430,7 @@ pub mod test {
 
     #[test]
     fn test_oam_dma() {
-        let mut ppu = PPU::new_empty_rom();
+        let mut ppu = PPU::new(vec![0; 2048], Mirroring::Horizontal);
 
         let mut data = [0x66; 256];
         data[0] = 0x77;

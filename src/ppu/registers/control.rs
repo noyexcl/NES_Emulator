@@ -17,6 +17,7 @@ bitflags! {
     // |          (0: read backdrop from EXT pins; 1: output color on EXT pins)
     // +--------- Generate an NMI at the start of the
     //            vertical blanking interval (0: off; 1: on)
+    #[derive(Debug)]
     pub struct ControlRegister: u8 {
         const NAMETABLE1              = 0b0000_0001;
         const NAMETABLE2              = 0b0000_0010;

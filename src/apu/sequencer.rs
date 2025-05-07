@@ -1,3 +1,4 @@
+#[derive(Debug)]
 pub struct Sequencer {
     pub current_step: usize,
     steps: usize,

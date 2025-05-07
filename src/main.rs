@@ -9,12 +9,8 @@ mod rom;
 mod trace;
 
 use std::collections::HashMap;
-use std::fs::File;
-use std::io::Write;
-use std::os::windows::thread;
 use std::time::Instant;
 
-use apu::Sound;
 use apu::APU;
 use bus::Bus;
 use cpu::Mem;
@@ -22,22 +18,19 @@ use cpu::CPU;
 use joypad::Joypad;
 use joypad::JoypadButton;
 use ppu::PPU;
-use rand::Rng;
-use render::frame::show_tile;
 use render::frame::Frame;
 use rom::Rom;
-use sdl2::audio;
 use sdl2::audio::AudioQueue;
-use sdl2::audio::AudioStatus;
-use sdl2::audio::{AudioCallback, AudioSpecDesired};
+use sdl2::audio::AudioSpecDesired;
 use sdl2::event::Event;
 use sdl2::keyboard::Keycode;
 use sdl2::pixels::Color;
 use sdl2::pixels::PixelFormatEnum;
 use sdl2::EventPump;
-use std::thread::sleep;
 use std::time::Duration;
 use trace::trace;
+use tracing::debug;
+use tracing::{trace, Level};
 
 fn color(byte: u8) -> Color {
     match byte {
@@ -159,15 +152,16 @@ fn main() {
     let frame_start = Instant::now();
 
     //load the game
-    let raw = std::fs::read("pacman.nes").unwrap();
+    let raw = std::fs::read("1-len_ctr.nes").unwrap();
     let rom = Rom::new(&raw).unwrap();
 
     let mut frame = Frame::new();
 
-    let mut frame_counter = 0;
-
     let bus = Bus::new(rom, move |ppu: &PPU, apu: &mut APU, joypad: &mut Joypad| {
-        render::render(ppu, &mut frame);
+        if ppu.ctrl.generate_vblank_nmi() {
+            render::render(ppu, &mut frame);
+        }
+
         texture.update(None, &frame.data, 256 * 3).unwrap();
 
         /*
@@ -218,76 +212,24 @@ fn main() {
         }
     });
 
-    let mut log_file = File::create("cpu.log").unwrap();
+    /* Initialize Logger */
+    let log = std::sync::Arc::new(std::fs::File::create("trace.log").unwrap());
+
+    tracing_subscriber::fmt()
+        .with_ansi(false)
+        .with_writer(log)
+        .without_time()
+        .with_level(false)
+        .with_target(false)
+        .with_max_level(Level::TRACE)
+        .init();
 
     let mut cpu = CPU::new(bus);
     cpu.reset();
-    //cpu.program_counter = 0xc000;
-    cpu.run();
+    // cpu.program_counter = 0xc000;
+    // cpu.run();
 
-    /*
     cpu.run_with_callback(move |cpu| {
-        let log = trace(cpu) + "\n";
-        // Write log into nex.log File
-        log_file.write_all(log.as_bytes()).unwrap();
-        log_file.flush().unwrap();
+        tracing::trace!("{}", trace(cpu));
     });
-    */
-
-    /*
-    let mut log_file = File::create("cpu.log").unwrap();
-    let raw = std::fs::read("nestest.nes").unwrap();
-    let rom = Rom::new(&raw).unwrap();
-    let bus = Bus::new(rom, |_, _| {});
-
-    let mut cpu = CPU::new(bus);
-    cpu.reset();
-    cpu.program_counter = 0xc000;
-    */
-
-    /*
-
-    let mut screen_state = [0; 32 * 3 * 32];
-    let mut rng = rand::thread_rng();
-
-    // run the game cycle
-    cpu.run_with_callback(move |cpu| {
-        // Logging CPU Status
-        let log = trace(cpu) + "\n";
-        log_file.write_all(log.as_bytes()).unwrap();
-        log_file.flush().unwrap();
-
-        handle_user_input(cpu, &mut event_pump);
-
-        cpu.mem_write(0xfe, rng.gen_range(1, 16));
-
-        if read_screen_state(cpu, &mut screen_state) {
-            texture.update(None, &screen_state, 32 * 3).unwrap();
-
-            canvas.copy(&texture, None, None).unwrap();
-
-            canvas.present();
-        }
-
-        ::std::thread::sleep(std::time::Duration::new(0, 70_000));
-    });
-    */
-
-    /*
-    let mut file = File::create("nes.log").unwrap();
-    let raw = std::fs::read("nestest.nes").unwrap();
-    let rom = Rom::new(&raw).unwrap();
-    let bus = Bus::new(rom, |_| {});
-
-    let mut cpu = CPU::new(bus);
-    cpu.reset();
-    cpu.program_counter = 0xc000;
-
-    cpu.run_with_callback(move |cpu| {
-        let log = trace(cpu) + "\n";
-        // Write log into nex.log File
-        file.write_all(log.as_bytes()).unwrap();
-        file.flush().unwrap();
-    })
-    */
 }

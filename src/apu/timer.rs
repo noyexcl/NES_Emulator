@@ -1,3 +1,4 @@
+#[derive(Debug)]
 pub struct Timer {
     pub counter: u16,
     pub period: u16,
