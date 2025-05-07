@@ -57,13 +57,14 @@ fn render_name_table(
     shift_x: isize,
     shift_y: isize,
 ) {
+    let bank = ppu.ctrl.background_pattern_addr();
     let attribute_table = &name_table[0x03c0..0x0400];
 
     for i in 0..0x03c0 {
         let tile_column = i % 32;
         let tile_row = i / 32;
         let tile_idx = name_table[i] as u16;
-        let tile = ppu.get_tile_data(tile_idx);
+        let tile = ppu.get_tile_data(bank, tile_idx);
         let palette = bg_palette(ppu, attribute_table, tile_column, tile_row);
 
         for y in 0..=7 {
@@ -160,7 +161,7 @@ pub fn render(ppu: &PPU, frame: &mut Frame) {
 
         let bank: u16 = ppu.ctrl.sprite_pattern_addr();
 
-        let tile = ppu.get_tile_data(tile_idx);
+        let tile = ppu.get_tile_data(bank, tile_idx);
 
         for y in 0..=7 {
             let mut lower_bits = tile[y];

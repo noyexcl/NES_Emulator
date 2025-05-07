@@ -197,8 +197,7 @@ impl PPU {
         }
     }
 
-    pub fn get_tile_data(&self, tile_index: u16) -> &[u8] {
-        let bank = self.ctrl.background_pattern_addr();
+    pub fn get_tile_data(&self, bank: u16, tile_index: u16) -> &[u8] {
         if self.chr_rom.is_empty() {
             &self.chr_ram
                 [(bank + tile_index * 16) as usize..=(bank + tile_index * 16 + 15) as usize]
