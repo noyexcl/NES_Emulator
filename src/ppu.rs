@@ -134,7 +134,6 @@ impl PPU {
                 // panic!("attempt to write to chr_rom(addr space 0..0x1fff). it's read only. requested = {:x}", addr)
                 // self.chr_rom[addr as usize] = value;
                 if self.chr_rom.is_empty() {
-                    tracing::debug!("writing to chr_ram at addr {:04X} = {:02X}", addr, value);
                     self.chr_ram[addr as usize] = value;
                 } else {
                     eprintln!("attempt to write to chr_rom(addr space 0..0x1fff). it's read only. requested = {:x}", addr)
@@ -192,7 +191,7 @@ impl PPU {
                 self.palette_table[(addr_mirror - 0x3f00) as usize]
             }
 
-            0x3f00..=0x3fff => self.palette_table[(addr - 0x3eff) as usize],
+            0x3f00..=0x3fff => self.palette_table[(addr - 0x3f00) as usize],
             _ => panic!("unexpected access to mirrored space = {:x}", addr),
         }
     }
@@ -207,8 +206,34 @@ impl PPU {
         }
     }
 
-    pub fn tick(&mut self, cycles: u8) -> bool {
-        self.cycles += cycles as usize;
+    pub fn tick(&mut self) -> bool {
+        // Scanline  | Cycle     | To Do
+        // ----------+-----------+--------------------------------------------------------|
+        // 0 ~ 239   | 1 ~ 256   | Render piexels.                                        |
+        //           |           | Get background and sprite data from shift registers.   |
+        // ----------+-----------+--------------------------------------------------------|
+        //           | 257 ~ 320 | Evaluate sprite for the next scanline.                 |
+        //           |-----------+--------------------------------------------------------|
+        //           | 321 ~ 336 | Do pre-fetch tiles for the next scanline.              |
+        //           |-----------+--------------------------------------------------------|
+        //           | 337 ~ 340 | Meaningless fetch for padding.                         |
+        // ----------+-----------+--------------------------------------------------------|
+        // 240       | 0 ~ 341   | Do nothing (idle).                                     |
+        // ----------+-----------+--------------------------------------------------------|
+        // 241 ~ 260 | 1         | Set VBlank flag in status register.                    |
+        //           |           | Generate NMI if enabled.                               |
+        // ----------+-----------+--------------------------------------------------------|
+        // 261       | 1         | Clear VBlank flag in status register.                  |
+        //           |           | Reset sprite zero hit flag.                            |
+        //           |-----------+--------------------------------------------------------|
+        //           | 280 ~ 340 | Copy vertical scroll value `V` to `T` (VScroll sync).  |
+        //           |-----------+--------------------------------------------------------|
+        //           | 1 ~ 256,  | Fetch in the same way as 0 ~ 239.                      |
+        //           | 321 ~ 336 |                                                        |
+        // ----------+-----------+--------------------------------------------------------|
+
+        self.cycles += 1;
+
         if self.cycles >= 341 {
             if self.is_sprite_0_hit(self.cycles) {
                 self.status.set_sprite_zero_hit(true);
@@ -217,24 +242,25 @@ impl PPU {
             self.cycles -= 341;
             self.scanline += 1;
 
+            if self.scanline == 240 {
+                return true;
+            }
+
             if self.scanline == 241 {
                 self.status.set_vblank_status(true);
-                self.status.set_sprite_zero_hit(false);
+                self.status.set_sprite_zero_hit(true);
 
                 if self.ctrl.generate_vblank_nmi() {
                     self.nmi_interrupt = Some(1);
                 }
-
-                self.frame_ready = true;
             }
 
-            if self.scanline >= 262 {
+            if self.scanline == 262 {
                 self.scanline = 0;
                 self.nmi_interrupt = None;
                 self.frame_ready = false;
                 self.status.set_sprite_zero_hit(false);
                 self.status.reset_vblank_status();
-                return true;
             }
         }
 
@@ -246,6 +272,8 @@ impl PPU {
         let x = self.oam_data[3] as usize;
         (y == self.scanline as usize) && x <= cycle && self.mask.show_sprite()
     }
+
+    fn fetch_background(&self) {}
 }
 
 #[cfg(test)]

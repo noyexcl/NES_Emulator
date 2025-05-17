@@ -68,9 +68,8 @@ impl Pulse {
 
     pub fn sample(&self) -> u8 {
         if !self.sweep.mute && self.length_counter.is_active() {
-            let output = DUTY_TABLE[self.duty as usize][self.sequencer.current_step]
-                * self.envelope.current_volume();
-            output
+            DUTY_TABLE[self.duty as usize][self.sequencer.current_step]
+                * self.envelope.current_volume()
         } else {
             0
         }

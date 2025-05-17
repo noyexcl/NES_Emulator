@@ -25,6 +25,10 @@ pub struct Status {
     pub break_command: bool,
     pub overflow_flag: bool,
     pub negative_flag: bool,
+
+    /// IRQ inhibition triggered by CLI, SEI and PLP does not affect immediately, it's delayd by 1 instruction.
+    /// On the other hand RTI affects the irq flag immediately.
+    irq_disable_pending: Option<bool>,
 }
 
 impl Status {
@@ -48,6 +52,7 @@ impl Status {
             interrupt_disable_flag: (data & 0b0000_0100) != 0,
             zero_flag: (data & 0b0000_0010) != 0,
             carry_flag: (data & 0b0000_0001) != 0,
+            irq_disable_pending: None,
         }
     }
 }
@@ -64,7 +69,8 @@ pub struct CPU<'a> {
     pub stack_pointer: u8,
     pub program_counter: u16,
     pub bus: Bus<'a>,
-    log: String,
+    pub irq: bool,
+    pub irq_pending: bool,
 }
 
 pub trait Mem {
@@ -109,6 +115,7 @@ mod interrupt {
     #[derive(PartialEq, Eq)]
     pub enum InterruptType {
         NMI,
+        IRQ,
     }
 
     #[derive(PartialEq, Eq)]
@@ -125,6 +132,13 @@ mod interrupt {
         b_flag_mask: 0b0010_0000,
         cpu_cycles: 2,
     };
+
+    pub(super) const IRQ: Interrupt = Interrupt {
+        itype: InterruptType::IRQ,
+        vector_addr: 0xfffe,
+        b_flag_mask: 0,
+        cpu_cycles: 2,
+    };
 }
 
 impl<'a> CPU<'a> {
@@ -137,7 +151,8 @@ impl<'a> CPU<'a> {
             stack_pointer: 0,
             program_counter: 0,
             bus,
-            log: String::new(),
+            irq: false,
+            irq_pending: false,
         }
     }
 
@@ -247,6 +262,11 @@ impl<'a> CPU<'a> {
         self.update_zero_and_negative_flags(self.register_a);
     }
 
+    /// SP = SP + 1 \
+    /// NVxxDIZC = (STACK_BASE + SP)
+    ///
+    /// Pop value from stack, and set it as status flags. \
+    /// If there is a change of irq disable flag, it's delayed by 1 instruction.
     fn plp(&mut self) {
         self.status = Status::from_u8(self.stack_pop());
         self.status.break_command = false;
@@ -599,7 +619,7 @@ impl<'a> CPU<'a> {
         self.status = Status::from_u8(0b0010_0100);
         self.stack_pointer = STACK_RESET;
         self.program_counter = self.mem_read_u16(0xFFFC);
-        self.bus.tick(7); // 7 cycles for reset
+        self.bus.reset();
     }
 
     pub fn run(&mut self) {
@@ -620,6 +640,8 @@ impl<'a> CPU<'a> {
 
             if let Some(_nmi) = self.bus.poll_nmi_status() {
                 self.interrupt(interrupt::NMI);
+            } else if self.irq && !self.status.interrupt_disable_flag {
+                self.interrupt(interrupt::IRQ);
             }
 
             callback(self);
@@ -629,9 +651,6 @@ impl<'a> CPU<'a> {
                 .get(&code)
                 .unwrap_or_else(|| panic!("OpCode {:x} is not recognized", code));
             let mut extra_cycles = 0;
-
-            self.log
-                .push_str(&format!("{}({:x}) ", opcode.mnemonic, &opcode.code));
 
             self.program_counter += 1;
             let last_program_counter = self.program_counter;
@@ -839,6 +858,7 @@ impl<'a> CPU<'a> {
                 }
                 // CLI
                 0x58 => {
+                    // TODO: Delay flag change by 1 instruction
                     self.status.interrupt_disable_flag = false;
                 }
                 // CLV
@@ -856,6 +876,7 @@ impl<'a> CPU<'a> {
                 }
                 // SEI
                 0x78 => {
+                    // TODO: Delay flag change by instruction
                     self.status.interrupt_disable_flag = true;
                 }
 
@@ -875,6 +896,11 @@ impl<'a> CPU<'a> {
                 _ => todo!(),
             }
 
+            // I'm not sure this is the right way to handle irq, but this just makes it pass test.
+            // This repo also seems to use 2-step irq: https://github.com/lukexor/tetanes/blob/main/tetanes-core/src/cpu.rs#L116
+            self.irq = self.irq_pending;
+            self.irq_pending = self.bus.poll_irq_status();
+
             self.bus.tick(opcode.cycles + extra_cycles);
 
             // If not jump or branch occured
@@ -886,10 +912,10 @@ impl<'a> CPU<'a> {
 
     fn interrupt(&mut self, interrupt: interrupt::Interrupt) {
         self.stack_push_u16(self.program_counter);
-        let mut flag = self.status;
-        flag.break_command = interrupt.b_flag_mask & 0b0001_0000 != 0;
+        let mut status = self.status;
+        status.break_command = interrupt.b_flag_mask & 0b0010_0000 != 0;
 
-        self.stack_push(flag.to_u8());
+        self.stack_push(status.to_u8());
         self.status.interrupt_disable_flag = true;
 
         self.bus.tick(interrupt.cpu_cycles);

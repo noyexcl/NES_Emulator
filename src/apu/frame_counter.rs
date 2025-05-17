@@ -39,15 +39,19 @@ impl FrameCounter {
             counter: 0,
             step: 0,
             irq_flag: false,
-            irq_enabled: false,
+            irq_enabled: true,
             reset: None,
         }
     }
 
+    /// MI-- ---- \
+    /// M : Sequencer mode: 0 selects 4-step sequence, 1 selects 5-step sequence \
+    /// I : Interrupt inhibit flag. If set, the frame interrupt flag is cleared, otherwise it is unaffected. \
+    ///
+    /// Side Effects: Timer will reset after 3 or 4 CPU cycles \
+    ///               Writing a value with bit 7 set to this register should generate
+    ///               both of quater-frame and half-frame signals.
     pub fn write_register(&mut self, val: u8) {
-        // MI-- ----
-        // M : Sequencer mode: 0 selects 4-step sequence, 1 selects 5-step sequence
-        // I : Interrupt inhibit flag. If set, the frame interrupt flag is cleared, otherwise it is unaffected
         if val & 0b1000_0000 != 0 {
             self.mode = Mode::Step5;
         } else {
@@ -62,8 +66,8 @@ impl FrameCounter {
         }
 
         // If the write occurs during an APU cycle, in other words, at 1 CPU cycle(0.5 APU cycle)
-        // then the timer will get reset after 3 cpu cycles delay
-        // if not, it will get reset after 4 CPU cycles delay
+        // then the timer will get reset after 3 cpu cycles delay.
+        // if not, it will get reset after 4 CPU cycles delay.
         if self.counter & 1 == 1 {
             self.reset = Some(3);
         } else {
@@ -80,15 +84,9 @@ impl FrameCounter {
                 self.counter = 0;
                 self.step = 0;
                 self.reset = None;
-
-                // If the mode flag is set, then both "quarter frame" and "half frame" signals are also generated.
-                match self.mode {
-                    Mode::Step4 => return FrameType::None,
-                    Mode::Step5 => return FrameType::Half,
-                }
+            } else {
+                self.reset = Some(delay - 1);
             }
-
-            self.reset = Some(delay - 1);
 
             return FrameType::None;
         }
@@ -245,6 +243,6 @@ mod tests {
 
         assert_eq!(f.reset, None);
         assert_eq!(f.counter, 0);
-        assert_eq!(frame, FrameType::Half);
+        assert_eq!(frame, FrameType::None);
     }
 }

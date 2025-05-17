@@ -1,10 +1,10 @@
 /.vscode
 /target
-/roms
-/rogs
+/roms/licensed
+/roms/*.nes
+/logs
 
 notes.md
 
-*.nes
 *.log
 *.wav

@@ -11,6 +11,7 @@ pub struct LengthCounter {
     counter: u8,
     new_halted: Option<bool>,
     new_counter: Option<u8>,
+    prev_counter: u8,
 }
 
 impl LengthCounter {
@@ -21,13 +22,13 @@ impl LengthCounter {
             counter: 0,
             new_halted: None,
             new_counter: None,
+            prev_counter: 0,
         }
     }
 
     pub fn clock(&mut self) {
         if !self.halted && self.counter > 0 {
             self.counter -= 1;
-            // println!("decrment {}", self.counter);
         }
     }
 
@@ -39,9 +40,12 @@ impl LengthCounter {
         }
     }
 
+    /// New length will be loaded after a 1 CPU cycle delay. \
+    /// If the counter is clocked during that cycle, new length will be discarded.
     pub fn set_length(&mut self, length: u8) {
         if self.enabled {
             self.new_counter = Some(LENGTH_TABLE[length as usize]);
+            self.prev_counter = self.counter;
         }
     }
 
@@ -50,7 +54,13 @@ impl LengthCounter {
     }
 
     pub fn reload(&mut self) {
-        self.counter = self.new_counter.take().unwrap_or(self.counter);
+        if let Some(c) = self.new_counter {
+            if self.counter == self.prev_counter {
+                self.counter = c;
+            }
+            self.new_counter = None
+        }
+
         self.halted = self.new_halted.take().unwrap_or(self.halted);
     }
 

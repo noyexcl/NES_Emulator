@@ -111,6 +111,13 @@ impl APU {
         self.noise.half_frame_clock();
     }
 
+    pub fn reset(&mut self) {
+        self.frame_counter.write_register(0x00);
+        for _ in 0..14 {
+            self.tick();
+        }
+    }
+
     pub fn sample(&mut self) -> i16 {
         let pulse1 = self.pulse1.sample() as f64;
         let pulse2 = self.pulse2.sample() as f64;
@@ -197,6 +204,29 @@ impl APU {
             }
             _ => panic!("reading from unexcepted address {:#x}", addr),
         }
+    }
+
+    /// Basically same as $4015 read, but it does not clear frame_counter's irq flag \
+    /// This is for logging the status.
+    pub fn get_status(&self, addr: u16) -> u8 {
+        match addr {
+            0x4015 => {
+                // IF-D NT21
+                // I: DMC interrupt F: Frame interrupt D: DMC active NT21: Length counter > 0
+                (self.dmc.irq_flag as u8) << 7
+                    | (self.frame_counter.irq_flag as u8) << 6
+                    | (self.dmc.is_playing() as u8) << 4
+                    | (self.noise.is_playing() as u8) << 3
+                    | (self.triangle.is_playing() as u8) << 2
+                    | (self.pulse2.is_playing() as u8) << 1
+                    | self.pulse1.is_playing() as u8
+            }
+            _ => panic!("reading from unexcepted address {:#x}", addr),
+        }
+    }
+
+    pub fn poll_irq_status(&self) -> bool {
+        self.frame_counter.irq_flag | self.dmc.irq_flag
     }
 
     pub fn output(&mut self) -> Sound {

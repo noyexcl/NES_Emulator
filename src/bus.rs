@@ -38,7 +38,7 @@ pub struct Bus<'call> {
     wram: [u8; 2048], // TODO: implement this
     rom: Rc<Rom>,
     ppu: PPU,
-    apu: APU,
+    pub apu: APU,
     joypad: Joypad,
 
     pub cycles: usize,
@@ -72,26 +72,45 @@ impl<'call> Bus<'call> {
     pub fn tick(&mut self, cycles: u8) {
         self.cycles += cycles as usize;
 
-        //let nmi_before = self.ppu.nmi_interrupt.is_some();
-        let frame_ready_before = self.ppu.frame_ready;
-        self.ppu.tick(cycles * 3);
-        // let nmi_after = self.ppu.nmi_interrupt.is_some();
-        let frame_ready_after = self.ppu.frame_ready;
+        let mut frame_ready = false;
 
         for _ in 0..cycles {
+            for _ in 0..3 {
+                if self.ppu.tick() {
+                    frame_ready = true;
+                }
+            }
+
             self.apu.tick();
         }
 
         self.cpu_stall = self.apu.cpu_stall;
         self.apu.cpu_stall = 0;
 
-        if !frame_ready_before && frame_ready_after {
+        if frame_ready {
             (self.gameloop_callback)(&self.ppu, &mut self.apu, &mut self.joypad);
         }
     }
 
     pub fn poll_nmi_status(&mut self) -> Option<u8> {
         self.ppu.nmi_interrupt.take()
+    }
+
+    pub fn poll_irq_status(&self) -> bool {
+        self.apu.poll_irq_status()
+    }
+
+    /// Reset PPU & APU state, and clock them a certain number of times before first instruction begins.
+    pub fn reset(&mut self) {
+        self.cycles = 7;
+
+        for _ in 0..7 {
+            for _ in 0..3 {
+                self.ppu.tick();
+            }
+        }
+
+        self.apu.reset();
     }
 
     /// Get current state of the address \
@@ -113,7 +132,7 @@ impl<'call> Bus<'call> {
             0x2004 => self.ppu.read_oam_data(),
             0x2007 => 0xFF, // 面倒くさいから無視する
             0x4000..=0x4014 => 0xFF,
-            0x4015 => 0xFF,
+            0x4015 => self.apu.get_status(addr),
             0x4016 => 0xFF, // Ignore Joypad 1
             0x4017 => 0xFF, // Ignore Joypad 2
             0x6000..=0x7FFF => self.wram[(addr - 0x6000) as usize],
@@ -207,10 +226,9 @@ impl Mem for Bus<'_> {
                 self.ppu.write_to_data(data);
             }
 
-            0x4000..=0x4013 | 0x4015 => self.apu.write_register(addr, data),
+            0x4000..=0x4013 | 0x4015 | 0x4017 => self.apu.write_register(addr, data),
 
             0x4016 => self.joypad.write(data), // Ignore Joypad 1
-            0x4017 => {}                       // Ignore Joypad 2
 
             0x4014 => {
                 let mut buffer: [u8; 256] = [0; 256];
