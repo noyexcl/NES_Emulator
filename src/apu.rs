@@ -11,7 +11,7 @@ mod sweep;
 mod timer;
 mod triangle;
 
-use std::rc::Rc;
+use std::{iter::Inspect, rc::Rc};
 
 use dmc::DMC;
 use filter::FirstOrderFilter;
@@ -20,7 +20,7 @@ use noise::Noise;
 use pulse::Pulse;
 use triangle::Triangle;
 
-use crate::rom::Rom;
+use crate::{rom::Rom, trace::Inspector};
 
 #[allow(clippy::upper_case_acronyms)]
 #[derive(Debug)]
@@ -206,9 +206,22 @@ impl APU {
         }
     }
 
-    /// Basically same as $4015 read, but it does not clear frame_counter's irq flag \
-    /// This is for logging the status.
-    pub fn get_status(&self, addr: u16) -> u8 {
+    pub fn poll_irq_status(&self) -> bool {
+        self.frame_counter.irq_flag | self.dmc.irq_flag
+    }
+
+    pub fn output(&mut self) -> Sound {
+        let s = Sound {
+            buffer: self.buffer.clone(),
+        };
+
+        self.buffer.clear();
+        s
+    }
+}
+
+impl Inspector for APU {
+    fn inspect(&self, addr: u16) -> u8 {
         match addr {
             0x4015 => {
                 // IF-D NT21
@@ -225,17 +238,9 @@ impl APU {
         }
     }
 
-    pub fn poll_irq_status(&self) -> bool {
-        self.frame_counter.irq_flag | self.dmc.irq_flag
-    }
-
-    pub fn output(&mut self) -> Sound {
-        let s = Sound {
-            buffer: self.buffer.clone(),
-        };
-
-        self.buffer.clear();
-        s
+    #[allow(unused)]
+    fn inspect_u16(&self, addr: u16) -> u16 {
+        panic!("There is no need to use this function for APU");
     }
 }
 

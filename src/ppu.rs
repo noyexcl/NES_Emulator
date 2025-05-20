@@ -126,7 +126,7 @@ impl PPU {
         self.addr.increment(self.ctrl.vram_addr_increment());
     }
 
-    pub fn write_to_data(&mut self, value: u8) {
+    pub fn write_data(&mut self, value: u8) {
         let addr = self.addr.get();
 
         match addr {
@@ -207,31 +207,6 @@ impl PPU {
     }
 
     pub fn tick(&mut self) -> bool {
-        // Scanline  | Cycle     | To Do
-        // ----------+-----------+--------------------------------------------------------|
-        // 0 ~ 239   | 1 ~ 256   | Render piexels.                                        |
-        //           |           | Get background and sprite data from shift registers.   |
-        // ----------+-----------+--------------------------------------------------------|
-        //           | 257 ~ 320 | Evaluate sprite for the next scanline.                 |
-        //           |-----------+--------------------------------------------------------|
-        //           | 321 ~ 336 | Do pre-fetch tiles for the next scanline.              |
-        //           |-----------+--------------------------------------------------------|
-        //           | 337 ~ 340 | Meaningless fetch for padding.                         |
-        // ----------+-----------+--------------------------------------------------------|
-        // 240       | 0 ~ 341   | Do nothing (idle).                                     |
-        // ----------+-----------+--------------------------------------------------------|
-        // 241 ~ 260 | 1         | Set VBlank flag in status register.                    |
-        //           |           | Generate NMI if enabled.                               |
-        // ----------+-----------+--------------------------------------------------------|
-        // 261       | 1         | Clear VBlank flag in status register.                  |
-        //           |           | Reset sprite zero hit flag.                            |
-        //           |-----------+--------------------------------------------------------|
-        //           | 280 ~ 340 | Copy vertical scroll value `V` to `T` (VScroll sync).  |
-        //           |-----------+--------------------------------------------------------|
-        //           | 1 ~ 256,  | Fetch in the same way as 0 ~ 239.                      |
-        //           | 321 ~ 336 |                                                        |
-        // ----------+-----------+--------------------------------------------------------|
-
         self.cycles += 1;
 
         if self.cycles >= 341 {
@@ -272,8 +247,6 @@ impl PPU {
         let x = self.oam_data[3] as usize;
         (y == self.scanline as usize) && x <= cycle && self.mask.show_sprite()
     }
-
-    fn fetch_background(&self) {}
 }
 
 #[cfg(test)]
@@ -285,7 +258,7 @@ pub mod test {
         let mut ppu = PPU::new(vec![0; 2048], Mirroring::Horizontal);
         ppu.write_to_ppu_addr(0x23);
         ppu.write_to_ppu_addr(0x05);
-        ppu.write_to_data(0x66);
+        ppu.write_data(0x66);
 
         assert_eq!(ppu.vram[0x0305], 0x66);
     }
@@ -345,12 +318,12 @@ pub mod test {
         ppu.write_to_ppu_addr(0x24);
         ppu.write_to_ppu_addr(0x05);
 
-        ppu.write_to_data(0x66); //write to a
+        ppu.write_data(0x66); //write to a
 
         ppu.write_to_ppu_addr(0x28);
         ppu.write_to_ppu_addr(0x05);
 
-        ppu.write_to_data(0x77); //write to B
+        ppu.write_data(0x77); //write to B
 
         ppu.write_to_ppu_addr(0x20);
         ppu.write_to_ppu_addr(0x05);
@@ -375,12 +348,12 @@ pub mod test {
         ppu.write_to_ppu_addr(0x20);
         ppu.write_to_ppu_addr(0x05);
 
-        ppu.write_to_data(0x66); //write to A
+        ppu.write_data(0x66); //write to A
 
         ppu.write_to_ppu_addr(0x2C);
         ppu.write_to_ppu_addr(0x05);
 
-        ppu.write_to_data(0x77); //write to b
+        ppu.write_data(0x77); //write to b
 
         ppu.write_to_ppu_addr(0x28);
         ppu.write_to_ppu_addr(0x05);

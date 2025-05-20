@@ -1,6 +1,4 @@
-use tracing::trace;
-
-use crate::{bus::Bus, opcodes};
+use crate::{bus::Bus, mem::Mem, opcodes};
 use core::panic;
 use std::collections::HashMap;
 
@@ -71,25 +69,6 @@ pub struct CPU<'a> {
     pub bus: Bus<'a>,
     pub irq: bool,
     pub irq_pending: bool,
-}
-
-pub trait Mem {
-    fn mem_read(&mut self, addr: u16) -> u8;
-
-    fn mem_write(&mut self, addr: u16, data: u8);
-
-    fn mem_read_u16(&mut self, pos: u16) -> u16 {
-        let lo = self.mem_read(pos) as u16;
-        let hi = self.mem_read(pos + 1) as u16;
-        (hi << 8) | lo
-    }
-
-    fn mem_write_u16(&mut self, pos: u16, data: u16) {
-        let hi = (data >> 8) as u8;
-        let lo = (data & 0xff) as u8;
-        self.mem_write(pos, lo);
-        self.mem_write(pos + 1, hi);
-    }
 }
 
 impl Mem for CPU<'_> {
@@ -634,7 +613,7 @@ impl<'a> CPU<'a> {
                 // Skip CPU process if stalled
                 let c = self.bus.cpu_stall;
                 self.bus.cpu_stall = 0;
-                self.bus.tick(c as u8);
+                self.bus.tick(c);
                 continue;
             }
 
@@ -901,7 +880,7 @@ impl<'a> CPU<'a> {
             self.irq = self.irq_pending;
             self.irq_pending = self.bus.poll_irq_status();
 
-            self.bus.tick(opcode.cycles + extra_cycles);
+            self.bus.tick((opcode.cycles + extra_cycles) as usize);
 
             // If not jump or branch occured
             if last_program_counter == self.program_counter {
@@ -918,7 +897,7 @@ impl<'a> CPU<'a> {
         self.stack_push(status.to_u8());
         self.status.interrupt_disable_flag = true;
 
-        self.bus.tick(interrupt.cpu_cycles);
+        self.bus.tick(interrupt.cpu_cycles as usize);
         self.program_counter = self.mem_read_u16(interrupt.vector_addr);
     }
 

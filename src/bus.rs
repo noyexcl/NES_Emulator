@@ -2,7 +2,7 @@ use std::rc::Rc;
 
 use tracing::debug;
 
-use crate::{apu::APU, cpu::Mem, joypad::Joypad, ppu::PPU, rom::Rom};
+use crate::{apu::APU, joypad::Joypad, mem::Mem, ppu::PPU, rom::Rom, trace::Inspector};
 
 //  _______________ $10000  _______________
 // | PRG-ROM       |       |               |
@@ -69,8 +69,8 @@ impl<'call> Bus<'call> {
         }
     }
 
-    pub fn tick(&mut self, cycles: u8) {
-        self.cycles += cycles as usize;
+    pub fn tick(&mut self, cycles: usize) {
+        self.cycles += cycles;
 
         let mut frame_ready = false;
 
@@ -111,50 +111,6 @@ impl<'call> Bus<'call> {
         }
 
         self.apu.reset();
-    }
-
-    /// Get current state of the address \
-    /// There is no side effect such as resetting status or clearing flags when reading certain registers \
-    /// This fucntion is intended to be used to log the value of the address
-    ///
-    /// If the address points to write-only region or meaningless value to read, it will return 0xFF  
-    pub fn get_state_at(&self, addr: u16) -> u8 {
-        match addr {
-            RAM..=RAM_MIRRORS_END => {
-                let mirror_down_addr = addr & 0b0000_0111_1111_1111;
-                self.cpu_vram[mirror_down_addr as usize]
-            }
-            0x2000 | 0x2001 | 0x2003 | 0x2005 | 0x2006 | 0x4014 => 0xFF,
-            0x2002 => {
-                // Get status directly instead of calling read_status() because it has side effects
-                self.ppu.status.bits()
-            }
-            0x2004 => self.ppu.read_oam_data(),
-            0x2007 => 0xFF, // 面倒くさいから無視する
-            0x4000..=0x4014 => 0xFF,
-            0x4015 => self.apu.get_status(addr),
-            0x4016 => 0xFF, // Ignore Joypad 1
-            0x4017 => 0xFF, // Ignore Joypad 2
-            0x6000..=0x7FFF => self.wram[(addr - 0x6000) as usize],
-            0x2008..=PPU_REGISTERS_MIRRORS_END => {
-                let mirror_down_addr = addr & 0b0010_0000_0000_0111;
-                self.get_state_at(mirror_down_addr)
-            }
-            0x8000..=0xFFFF => self.rom.read_prg_rom(addr),
-            _ => {
-                println!("Ignoring mem access(read) at {:x}", addr);
-                0xFF
-            }
-        }
-    }
-
-    /// Get current state of the address as u16
-    /// This function is intended to be used to log the value of the address
-    pub fn get_state_at_u16(&self, addr: u16) -> u16 {
-        let lo = self.get_state_at(addr) as u16;
-        let hi = self.get_state_at(addr + 1) as u16;
-
-        (hi << 8) | lo
     }
 }
 
@@ -223,7 +179,7 @@ impl Mem for Bus<'_> {
                 self.ppu.write_to_ppu_addr(data);
             }
             0x2007 => {
-                self.ppu.write_to_data(data);
+                self.ppu.write_data(data);
             }
 
             0x4000..=0x4013 | 0x4015 | 0x4017 => self.apu.write_register(addr, data),
@@ -240,8 +196,8 @@ impl Mem for Bus<'_> {
                 self.ppu.write_oam_dma(&buffer);
 
                 // todo: handle this eventually
-                // let add_cycles: u16 = if self.cycles % 2 == 1 { 514 } else { 513 };
-                // self.tick(add_cycles); //todo this will cause weird effects as PPU will have 513/514 * 3 ticks
+                let add_cycles = if self.cycles % 2 == 1 { 514 } else { 513 };
+                self.tick(add_cycles); //todo this will cause weird effects as PPU will have 513/514 * 3 ticks
             }
 
             0x2008..=PPU_REGISTERS_MIRRORS_END => {
@@ -259,6 +215,47 @@ impl Mem for Bus<'_> {
                 println!("Ignoring mem access(write) at {:x}", addr);
             }
         }
+    }
+}
+
+impl Inspector for Bus<'_> {
+    fn inspect(&self, addr: u16) -> u8 {
+        match addr {
+            RAM..=RAM_MIRRORS_END => {
+                let mirror_down_addr = addr & 0b0000_0111_1111_1111;
+                self.cpu_vram[mirror_down_addr as usize]
+            }
+            0x2000 | 0x2001 | 0x2003 | 0x2005 | 0x2006 | 0x4014 => 0xFF,
+            0x2002 => {
+                // Get status directly instead of calling read_status() because it has side effects
+                self.ppu.status.bits()
+            }
+            0x2004 => self.ppu.read_oam_data(),
+            0x2007 => 0xFF, // 面倒くさいから無視する
+            0x4000..=0x4014 => 0xFF,
+            0x4015 => self.apu.inspect(addr),
+            0x4016 => 0xFF, // Ignore Joypad 1
+            0x4017 => 0xFF, // Ignore Joypad 2
+            0x6000..=0x7FFF => self.wram[(addr - 0x6000) as usize],
+            0x2008..=PPU_REGISTERS_MIRRORS_END => {
+                let mirror_down_addr = addr & 0b0010_0000_0000_0111;
+                self.inspect(mirror_down_addr)
+            }
+            0x8000..=0xFFFF => self.rom.read_prg_rom(addr),
+            _ => {
+                println!("Ignoring mem access(read) at {:x}", addr);
+                0xFF
+            }
+        }
+    }
+
+    /// Get current state of the address as u16
+    /// This function is intended to be used to log the value of the address
+    fn inspect_u16(&self, addr: u16) -> u16 {
+        let lo = self.inspect(addr) as u16;
+        let hi = self.inspect(addr + 1) as u16;
+
+        (hi << 8) | lo
     }
 }
 

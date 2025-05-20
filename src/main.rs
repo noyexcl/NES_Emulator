@@ -2,6 +2,7 @@ mod apu;
 mod bus;
 mod cpu;
 mod joypad;
+mod mem;
 mod opcodes;
 mod ppu;
 mod render;
