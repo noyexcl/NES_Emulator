@@ -4,14 +4,13 @@ use self::registers::{
     addr::AddrRegister, control::ControlRegister, mask::MaskRegister, scroll::ScrollRegister,
     status::StatusRegister,
 };
-use crate::rom::Mirroring;
+use crate::{rom::Mirroring, trace::Inspector};
 
 #[allow(clippy::upper_case_acronyms)]
 #[derive(Debug)]
 pub struct PPU {
     pub nmi_interrupt: Option<u8>,
     /// Set to true when NMI interrupt is occurred or a frame's worth of cycles has elapsed  
-    pub frame_ready: bool,
     pub chr_rom: Vec<u8>,
     pub chr_ram: [u8; 2048],
     pub vram: [u8; 2048],
@@ -48,7 +47,6 @@ impl PPU {
             scanline: 0,
             cycles: 0,
             nmi_interrupt: None,
-            frame_ready: false,
         }
     }
 
@@ -80,9 +78,9 @@ impl PPU {
     pub fn write_to_ctrl(&mut self, value: u8) {
         let before_nmi_status = self.ctrl.generate_vblank_nmi();
         self.ctrl = ControlRegister::from_bits_truncate(value);
+
         if !before_nmi_status && self.ctrl.generate_vblank_nmi() && self.status.is_in_vblank() {
             self.nmi_interrupt = Some(1);
-            self.frame_ready = true;
         }
     }
 
@@ -217,23 +215,20 @@ impl PPU {
             self.cycles -= 341;
             self.scanline += 1;
 
-            if self.scanline == 240 {
-                return true;
-            }
-
             if self.scanline == 241 {
                 self.status.set_vblank_status(true);
-                self.status.set_sprite_zero_hit(true);
+                self.status.set_sprite_zero_hit(false);
 
                 if self.ctrl.generate_vblank_nmi() {
                     self.nmi_interrupt = Some(1);
                 }
+
+                return true;
             }
 
             if self.scanline == 262 {
                 self.scanline = 0;
                 self.nmi_interrupt = None;
-                self.frame_ready = false;
                 self.status.set_sprite_zero_hit(false);
                 self.status.reset_vblank_status();
             }
@@ -246,6 +241,32 @@ impl PPU {
         let y = self.oam_data[0] as usize;
         let x = self.oam_data[3] as usize;
         (y == self.scanline as usize) && x <= cycle && self.mask.show_sprite()
+    }
+}
+
+impl Inspector for PPU {
+    fn inspect(&self, addr: u16) -> u8 {
+        match addr {
+            0x2000 => self.ctrl.bits(),
+            0x2001 => self.mask.bits(),
+            0x2002 => self.status.bits(),
+            0x2003 => self.oam_addr,
+            0x2004 => self.read_oam_data(),
+            0x2005 => {
+                if self.scroll.latch {
+                    self.scroll.x
+                } else {
+                    self.scroll.y
+                }
+            }
+            0x2006 | 0x2007 => 0xFF,
+            _ => panic!("{:X} is not a PPU region", addr),
+        }
+    }
+
+    #[allow(unused)]
+    fn inspect_u16(&self, addr: u16) -> u16 {
+        panic!("PPU Inspector does not support u16 read");
     }
 }
 

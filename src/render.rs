@@ -76,10 +76,10 @@ fn render_name_table(
                 upper_bits >>= 1;
                 lower_bits >>= 1;
                 let rgb = match value {
-                    0 => palette::SYSTEM_PALLETE[ppu.palette_table[0] as usize],
-                    1 => palette::SYSTEM_PALLETE[palette[1] as usize],
-                    2 => palette::SYSTEM_PALLETE[palette[2] as usize],
-                    3 => palette::SYSTEM_PALLETE[palette[3] as usize],
+                    0 => palette::SYSTEM_PALETTE[ppu.palette_table[0] as usize],
+                    1 => palette::SYSTEM_PALETTE[palette[1] as usize],
+                    2 => palette::SYSTEM_PALETTE[palette[2] as usize],
+                    3 => palette::SYSTEM_PALETTE[palette[3] as usize],
                     _ => panic!("can't be"),
                 };
                 let pixel_x = tile_column * 8 + x;
@@ -107,14 +107,18 @@ pub fn render(ppu: &PPU, frame: &mut Frame) {
 
     let (main_nametable, second_nametable) = match (&ppu.mirroring, ppu.ctrl.base_nametable_addr())
     {
-        (Mirroring::Vertical, 0x2000)
-        | (Mirroring::Vertical, 0x2800)
-        | (Mirroring::Horizontal, 0x2000)
-        | (Mirroring::Horizontal, 0x2400) => (&ppu.vram[0..0x400], &ppu.vram[0x400..0x800]),
-        (Mirroring::Vertical, 0x2400)
-        | (Mirroring::Vertical, 0x2C00)
-        | (Mirroring::Horizontal, 0x2800)
-        | (Mirroring::Horizontal, 0x2C00) => (&ppu.vram[0x400..0x800], &ppu.vram[0..0x400]),
+        (Mirroring::Vertical, 0x2000) | (Mirroring::Vertical, 0x2800) => {
+            (&ppu.vram[0..0x400], &ppu.vram[0x400..0x800])
+        }
+        (Mirroring::Vertical, 0x2400) | (Mirroring::Vertical, 0x2C00) => {
+            (&ppu.vram[0x400..0x800], &ppu.vram[0..0x400])
+        }
+        (Mirroring::Horizontal, 0x2000) | (Mirroring::Horizontal, 0x2400) => {
+            (&ppu.vram[0..0x400], &ppu.vram[0x400..0x800])
+        }
+        (Mirroring::Horizontal, 0x2800) | (Mirroring::Horizontal, 0x2C00) => {
+            (&ppu.vram[0x400..0x800], &ppu.vram[0..0x400])
+        }
         (_, _) => {
             panic!("Unimplemented nametable mirroring: {:?}", ppu.mirroring);
         }
@@ -129,20 +133,37 @@ pub fn render(ppu: &PPU, frame: &mut Frame) {
         -(scroll_y as isize),
     );
 
+    // Horizontal Mirroring | Vertical Mirroring
+    // A A'                 | A  B
+    // B B'                 | A' B'
     if scroll_x > 0 {
+        // If it's horizontal mirroring and trying to scroll horizontal, use same table
+        let table = match ppu.mirroring {
+            Mirroring::Vertical => second_nametable,
+            Mirroring::Horizontal => main_nametable,
+            _ => unimplemented!(),
+        };
+
         render_name_table(
             ppu,
             frame,
-            second_nametable,
+            table,
             Rect::new(0, 0, scroll_x, 240),
             (256 - scroll_x) as isize,
             0,
         );
     } else if scroll_y > 0 {
+        // If it's vertical mirroring and trying to scroll vertical, use same table
+        let table = match ppu.mirroring {
+            Mirroring::Vertical => main_nametable,
+            Mirroring::Horizontal => second_nametable,
+            _ => unimplemented!(),
+        };
+
         render_name_table(
             ppu,
             frame,
-            second_nametable,
+            table,
             Rect::new(0, 0, 256, scroll_y),
             0,
             (240 - scroll_y) as isize,
@@ -173,9 +194,9 @@ pub fn render(ppu: &PPU, frame: &mut Frame) {
 
                 let rgb = match value {
                     0 => continue 'x, // skip coloring the pixel because it's transparent
-                    1 => palette::SYSTEM_PALLETE[sprite_palette[1] as usize],
-                    2 => palette::SYSTEM_PALLETE[sprite_palette[2] as usize],
-                    3 => palette::SYSTEM_PALLETE[sprite_palette[3] as usize],
+                    1 => palette::SYSTEM_PALETTE[sprite_palette[1] as usize],
+                    2 => palette::SYSTEM_PALETTE[sprite_palette[2] as usize],
+                    3 => palette::SYSTEM_PALETTE[sprite_palette[3] as usize],
                     _ => unreachable!("can't be"),
                 };
                 match (flip_horizontal, flip_vertical) {

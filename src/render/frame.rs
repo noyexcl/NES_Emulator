@@ -1,4 +1,4 @@
-use super::palette::SYSTEM_PALLETE;
+use super::palette::SYSTEM_PALETTE;
 
 pub struct Frame {
     pub data: Vec<u8>,
@@ -41,10 +41,10 @@ pub fn show_tile(chr_rom: &[u8], bank: usize, tile_n: usize) -> Frame {
             upper >>= 1;
             lower >>= 1;
             let rgb = match value {
-                0 => SYSTEM_PALLETE[0x01],
-                1 => SYSTEM_PALLETE[0x23],
-                2 => SYSTEM_PALLETE[0x27],
-                3 => SYSTEM_PALLETE[0x30],
+                0 => SYSTEM_PALETTE[0x01],
+                1 => SYSTEM_PALETTE[0x23],
+                2 => SYSTEM_PALETTE[0x27],
+                3 => SYSTEM_PALETTE[0x30],
                 _ => unreachable!("unknown value: {}", value),
             };
             frame.set_pixel(x, y, rgb)

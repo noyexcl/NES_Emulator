@@ -164,7 +164,8 @@ impl Mem for Bus<'_> {
                 self.ppu.write_to_mask(data);
             }
             0x2002 => {
-                panic!("Attempt to write to read-only PPU address {:x}", addr);
+                // panic!("Attempt to write to read-only PPU address {:x}", addr);
+                println!("Ignore writing to 0x2002");
             }
             0x2003 => {
                 self.ppu.write_to_oam_addr(data);
@@ -225,17 +226,10 @@ impl Inspector for Bus<'_> {
                 let mirror_down_addr = addr & 0b0000_0111_1111_1111;
                 self.cpu_vram[mirror_down_addr as usize]
             }
-            0x2000 | 0x2001 | 0x2003 | 0x2005 | 0x2006 | 0x4014 => 0xFF,
-            0x2002 => {
-                // Get status directly instead of calling read_status() because it has side effects
-                self.ppu.status.bits()
-            }
-            0x2004 => self.ppu.read_oam_data(),
-            0x2007 => 0xFF, // 面倒くさいから無視する
+            0x2000..=0x2007 => self.ppu.inspect(addr),
             0x4000..=0x4014 => 0xFF,
             0x4015 => self.apu.inspect(addr),
-            0x4016 => 0xFF, // Ignore Joypad 1
-            0x4017 => 0xFF, // Ignore Joypad 2
+            0x4016 | 0x4017 => 0xFF, // Ignore Joypads
             0x6000..=0x7FFF => self.wram[(addr - 0x6000) as usize],
             0x2008..=PPU_REGISTERS_MIRRORS_END => {
                 let mirror_down_addr = addr & 0b0010_0000_0000_0111;
