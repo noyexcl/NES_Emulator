@@ -216,6 +216,181 @@ pub fn trace(cpu: &CPU) -> String {
     result
 }
 
+/// Trace in Messen2 format
+pub fn trace2(cpu: &CPU) -> String {
+    let mut result = String::new();
+    let opcode_table: &HashMap<u8, &'static opcodes::OpCode> = &opcodes::OPCODES_MAP;
+    let code = cpu.bus.inspect(cpu.program_counter);
+    let opcode = opcode_table
+        .get(&code)
+        .unwrap_or_else(|| panic!("OpCode {:02X} is not recognized", code));
+
+    // program counter
+    result.push_str(&format!("{:04X}  ", cpu.program_counter));
+
+    result.push_str(&format!("{} ", opcode.mnemonic));
+
+    // mnemonic & formatted operand
+    match opcode.mode {
+        AddressingMode::Immediate => {
+            let value = cpu.bus.inspect(cpu.program_counter + 1);
+
+            // mnemonic & value with format
+            result.push_str(&format!("{:29}", format!("#${:02X}", value)));
+        }
+        AddressingMode::ZeroPage => {
+            let addr = get_operand_address(cpu, &opcode.mode);
+            let value = cpu.bus.inspect(addr);
+
+            // mnemonic & addr with format
+            result.push_str(&format!("{:29}", format!("${:02X} = ${:02X}", addr, value)));
+        }
+        AddressingMode::ZeroPage_X => {
+            let base = cpu.bus.inspect(cpu.program_counter + 1);
+            let addr = get_operand_address(cpu, &opcode.mode);
+            let value = cpu.bus.inspect(addr);
+
+            result.push_str(&format!(
+                "{:29}",
+                format!("${:02X},X [${:04X}] = ${:02X}", base, addr as u8, value)
+            ));
+        }
+
+        AddressingMode::ZeroPage_Y => {
+            let base = cpu.bus.inspect(cpu.program_counter + 1);
+            let addr = get_operand_address(cpu, &opcode.mode);
+            let value = cpu.bus.inspect(addr);
+
+            result.push_str(&format!(
+                "{:29}",
+                format!("${:02X},Y [${:04X}] = ${:02X}", base, addr as u8, value)
+            ));
+        }
+        AddressingMode::Absolute => {
+            let addr = get_operand_address(cpu, &opcode.mode);
+            let value = cpu.bus.inspect(addr);
+
+            match opcode.code {
+                // JMP系の命令の場合、値は表示しない
+                0x4c | 0x20 => {
+                    result.push_str(&format!("{:29}", format!("${:04X}", addr)));
+                }
+                _ => {
+                    result.push_str(&format!("{:29}", format!("${:04X} = ${:02X}", addr, value)));
+                }
+            }
+        }
+        AddressingMode::Absolute_X => {
+            let lo = cpu.bus.inspect(cpu.program_counter + 1) as u16;
+            let hi = cpu.bus.inspect(cpu.program_counter + 2) as u16;
+            let addr = (hi << 8) | lo;
+
+            let indexed_addr = addr.wrapping_add(cpu.register_x as u16);
+            let value = cpu.bus.inspect(indexed_addr);
+
+            result.push_str(&format!(
+                "{:29}",
+                format!("${:04X},X [${:04X}] = ${:02X}", addr, indexed_addr, value)
+            ));
+        }
+        AddressingMode::Absolute_Y => {
+            let lo = cpu.bus.inspect(cpu.program_counter + 1) as u16;
+            let hi = cpu.bus.inspect(cpu.program_counter + 2) as u16;
+            let addr = (hi << 8) | lo;
+
+            let indexed_addr = addr.wrapping_add(cpu.register_y as u16);
+            let value = cpu.bus.inspect(indexed_addr);
+
+            result.push_str(&format!(
+                "{:29}",
+                format!("${:04X},Y [${:04X}] = ${:02X}", addr, indexed_addr, value)
+            ));
+        }
+        AddressingMode::Indirect => {
+            let lo = cpu.bus.inspect(cpu.program_counter + 1) as u16;
+            let hi = cpu.bus.inspect(cpu.program_counter + 2) as u16;
+            let addr = (hi << 8) | lo;
+
+            let jmp_addr = get_operand_address(cpu, &opcode.mode);
+            let value = cpu.bus.inspect(jmp_addr);
+
+            result.push_str(&format!(
+                "{:29}",
+                format!("(${:04X}) [${:04X}] = ${:02X}", addr, jmp_addr, value)
+            ));
+        }
+        AddressingMode::Indirect_X => {
+            let base = cpu.bus.inspect(cpu.program_counter + 1);
+            let addr = get_operand_address(cpu, &opcode.mode);
+            let value = cpu.bus.inspect(addr);
+
+            result.push_str(&format!(
+                "{:29}",
+                format!(
+                    "(${:02X},X) [${:04X}] = ${:02X}",
+                    base,
+                    addr,
+                    value
+                )
+            ));
+        }
+        AddressingMode::Indirect_Y => {
+            let base = cpu.bus.inspect(cpu.program_counter + 1);
+            let addr = get_operand_address(cpu, &opcode.mode);
+            let addr_before_indexed = addr.wrapping_sub(cpu.register_y as u16);
+            let value = cpu.bus.inspect(addr);
+
+            result.push_str(&format!(
+                "{:29}",
+                format!(
+                    "(${:02X}),Y [${:04X}] = ${:02X}",
+                    base, addr, value
+                )
+            ));
+        }
+        AddressingMode::NoneAddressing => match opcode.code {
+            // ブランチ系のRelativeアドレッシングモードでは、ジャンプ先のアドレスを計算して表示する
+            0x90 | 0xB0 | 0xF0 | 0x30 | 0xD0 | 0x10 | 0x50 | 0x70 => {
+                let offset = cpu.bus.inspect(cpu.program_counter + 1) as i8 as i16;
+                let jmp_addr = ((cpu.program_counter + 2) as i16).wrapping_add(offset) as u16;
+
+                result.push_str(&format!("{:29}", format!("${:04X}", jmp_addr)));
+            }
+            // Accumulatorアドレッシングモードの場合、Aと表示する
+            0x4A | 0x0A | 0x6A | 0x2A => {
+                result.push_str(&format!("{:29}", "A"));
+            }
+            _ => {
+                result.push_str(&format!("{:29}", ""));
+            }
+        },
+    }
+
+    result.push_str(&format!(
+        "A:{:02X} X:{:02X} Y:{:02X} S:{:02X} P:{:02X} ",
+        cpu.register_a,
+        cpu.register_x,
+        cpu.register_y,
+        cpu.stack_pointer,
+        cpu.status.to_u8() & 0b1101_1111
+    ));
+
+    result.push_str(&format!("BC:{:02X} ", opcode.code));
+
+    // following opcodes
+    if opcode.len == 2 {
+        result.push_str(&format!("{:02X}", cpu.bus.inspect(cpu.program_counter + 1)));
+    } else if opcode.len == 3 {
+        result.push_str(&format!(
+            "{:02X} {:02X}",
+            cpu.bus.inspect(cpu.program_counter + 1),
+            cpu.bus.inspect(cpu.program_counter + 2)
+        ));
+    }
+
+    result
+}
+
 fn get_operand_address(cpu: &CPU, mode: &AddressingMode) -> u16 {
     let counter = cpu.program_counter + 1;
 

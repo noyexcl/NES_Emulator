@@ -11,7 +11,7 @@ mod sweep;
 mod timer;
 mod triangle;
 
-use std::{iter::Inspect, rc::Rc};
+use std::rc::Rc;
 
 use dmc::DMC;
 use filter::FirstOrderFilter;

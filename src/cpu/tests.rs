@@ -2,6 +2,13 @@ use super::*;
 use crate::rom::test::TestRom;
 use std::vec;
 
+fn init_cpu(instructions: Vec<u8>) -> CPU<'static> {
+    let test_rom = TestRom::create_test_rom(instructions);
+    let mut cpu = CPU::new(Bus::new(test_rom, |_, _, _| {}));
+    cpu.reset();
+    cpu
+}
+
 #[test]
 fn test_0xa9_lda_immediate_load_data() {
     let test_rom = TestRom::create_test_rom(vec![0xa9, 0x05, 0x00]);
@@ -702,3 +709,5 @@ fn test_tsx() {
 
     assert_eq!(cpu.register_x, 0xfd);
 }
+
+// TODO: write tests for Unofficial Opcodes

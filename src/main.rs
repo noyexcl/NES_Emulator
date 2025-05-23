@@ -26,6 +26,7 @@ use sdl2::event::Event;
 use sdl2::keyboard::Keycode;
 use sdl2::pixels::PixelFormatEnum;
 use trace::trace;
+use trace::trace2;
 use tracing::{debug, trace, Level};
 
 fn main() {
@@ -76,7 +77,7 @@ fn main() {
     let args: Vec<String> = env::args().collect();
 
     //load the game
-    let raw = std::fs::read(format!("roms/{}", args[1])).unwrap();
+    let raw = std::fs::read(&args[1]).unwrap();
     let rom = Rom::new(&raw).unwrap();
 
     let mut frame = Frame::new();
@@ -134,6 +135,6 @@ fn main() {
     cpu.run();
 
     cpu.run_with_callback(move |cpu| {
-        tracing::info!("{}", trace(cpu));
+        tracing::info!("{}", trace2(cpu));
     });
 }

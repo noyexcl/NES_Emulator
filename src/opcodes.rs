@@ -37,6 +37,8 @@ lazy_static! {
     OpCode::new(0xBF, "LAX", 3, 4 /* +1 if page crossed */, AddressingMode::Absolute_Y),
     OpCode::new(0xA3, "LAX", 2, 6, AddressingMode::Indirect_X),
     OpCode::new(0xB3, "LAX", 2, 5 /* +1 if page crossed */, AddressingMode::Indirect_Y),
+    // Store AND oper in A and X (Immediate LAX)
+    OpCode::new(0xAB, "LAX", 2, 2, AddressingMode::Immediate),
 
     /* --- Store Operation --- */
     // Store accumulator
@@ -61,6 +63,8 @@ lazy_static! {
     OpCode::new(0x97, "SAX", 2, 4, AddressingMode::ZeroPage_Y),
     OpCode::new(0x8F, "SAX", 3, 4, AddressingMode::Absolute),
     OpCode::new(0x83, "SAX", 2, 6, AddressingMode::Indirect_X),
+    // (A AND X) - oper -> X
+    OpCode::new(0xCB, "AXS", 2, 2, AddressingMode::Immediate),
 
     /* --- Register Transfers --- */
     // Transfer accumulator to X (N,Z)
@@ -241,6 +245,19 @@ lazy_static! {
     OpCode::new(0x3B, "RLA", 3, 7, AddressingMode::Absolute_Y),
     OpCode::new(0x23, "RLA", 2, 8, AddressingMode::Indirect_X),
     OpCode::new(0x33, "RLA", 2, 8, AddressingMode::Indirect_Y),
+
+    // AND + LSR (Unofficial opcodes)
+    OpCode::new(0x4B, "ALR", 2, 2, AddressingMode::Immediate),
+
+    // AND + ROR
+    OpCode::new(0x6B, "ARR", 2, 2, AddressingMode::Immediate),
+
+    // AND + set C as ASL (Unofficial opcodes)
+    OpCode::new(0x0B, "ANC", 2, 2, AddressingMode::Immediate),
+
+    // AND + set C as ROL (Unofficial opcodes)
+    // Effectively the same as ANC
+    OpCode::new(0x2B, "ANC2", 2, 2, AddressingMode::Immediate),
 
     // LSR + EOR (Unofficial opcodes)
     OpCode::new(0x47, "SRE", 2, 5, AddressingMode::ZeroPage),
