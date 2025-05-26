@@ -326,12 +326,7 @@ pub fn trace2(cpu: &CPU) -> String {
 
             result.push_str(&format!(
                 "{:29}",
-                format!(
-                    "(${:02X},X) [${:04X}] = ${:02X}",
-                    base,
-                    addr,
-                    value
-                )
+                format!("(${:02X},X) [${:04X}] = ${:02X}", base, addr, value)
             ));
         }
         AddressingMode::Indirect_Y => {
@@ -342,10 +337,7 @@ pub fn trace2(cpu: &CPU) -> String {
 
             result.push_str(&format!(
                 "{:29}",
-                format!(
-                    "(${:02X}),Y [${:04X}] = ${:02X}",
-                    base, addr, value
-                )
+                format!("(${:02X}),Y [${:04X}] = ${:02X}", base, addr, value)
             ));
         }
         AddressingMode::NoneAddressing => match opcode.code {
@@ -470,6 +462,7 @@ mod test {
         bus.mem_write(104, 0x00);
 
         let mut cpu = CPU::new(bus);
+        cpu.exit_on_brk = true;
         cpu.reset();
         cpu.program_counter = 0x64;
         cpu.register_a = 1;
@@ -508,6 +501,7 @@ mod test {
         bus.mem_write(0x400, 0xAA);
 
         let mut cpu = CPU::new(bus);
+        cpu.exit_on_brk = true;
         cpu.reset();
         cpu.program_counter = 0x64;
         cpu.register_y = 0;
@@ -533,6 +527,7 @@ mod test {
         bus.mem_write(0x34, 0xAA);
 
         let mut cpu = CPU::new(bus);
+        cpu.exit_on_brk = true;
         cpu.reset();
         cpu.program_counter = 0x64;
         cpu.register_x = 1;
@@ -558,6 +553,7 @@ mod test {
         bus.mem_write(0x34, 0xAA);
 
         let mut cpu = CPU::new(bus);
+        cpu.exit_on_brk = true;
         cpu.reset();
         cpu.program_counter = 0x64;
         cpu.register_y = 1;

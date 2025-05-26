@@ -1,3 +1,5 @@
+use interrupt::BRK;
+
 use crate::{bus::Bus, mem::Mem, opcodes};
 use core::panic;
 use std::collections::HashMap;
@@ -69,6 +71,7 @@ pub struct CPU<'a> {
     pub bus: Bus<'a>,
     pub irq: bool,
     pub irq_pending: bool,
+    pub exit_on_brk: bool,
 }
 
 impl Mem for CPU<'_> {
@@ -95,6 +98,7 @@ mod interrupt {
     pub enum InterruptType {
         NMI,
         IRQ,
+        BRK,
     }
 
     #[derive(PartialEq, Eq)]
@@ -118,6 +122,13 @@ mod interrupt {
         b_flag_mask: 0,
         cpu_cycles: 2,
     };
+
+    pub(super) const BRK: Interrupt = Interrupt {
+        itype: InterruptType::BRK,
+        vector_addr: 0xfffe,
+        b_flag_mask: 0b0010_0000,
+        cpu_cycles: 2,
+    };
 }
 
 impl<'a> CPU<'a> {
@@ -132,6 +143,7 @@ impl<'a> CPU<'a> {
             bus,
             irq: false,
             irq_pending: false,
+            exit_on_brk: false,
         }
     }
 
@@ -334,6 +346,38 @@ impl<'a> CPU<'a> {
     fn anc(&mut self, mode: &AddressingMode) {
         self.and(mode);
         self.status.carry_flag = self.register_a & 0x80 != 0;
+    }
+
+    /// Store X AND (high-byte of addr + 1) at addr. \
+    /// X AND (H+1) -> M
+    ///
+    /// If page crossed, the AND operation will be droped and M will remain the same.
+    ///
+    /// Status flags: -
+    fn shx(&mut self, mode: &AddressingMode) {
+        let (addr, crossed) = self.get_operand_address(mode);
+
+        if !crossed {
+            let rhs = (addr >> 8).wrapping_add(1) as u8;
+            let result = self.register_x & rhs;
+            self.mem_write(addr, result);
+        }
+    }
+
+    /// Store Y AND (high-byte of addr + 1) at addr. \
+    /// Y AND (H+1) -> M
+    ///
+    /// If page crossed, the AND operation will be droped and M will remain the same.
+    ///
+    /// Status flags: -
+    fn shy(&mut self, mode: &AddressingMode) {
+        let (addr, crossed) = self.get_operand_address(mode);
+
+        if !crossed {
+            let rhs = (addr >> 8).wrapping_add(1) as u8;
+            let result = self.register_y & rhs;
+            self.mem_write(addr, result);
+        }
     }
 
     /// MAGIC_CONSTANT AND oper -> A -> X
@@ -789,6 +833,10 @@ impl<'a> CPU<'a> {
 
                 0x0b | 0x2b => self.anc(&opcode.mode),
 
+                0x9E => self.shx(&opcode.mode),
+
+                0x9C => self.shy(&opcode.mode),
+
                 0x49 | 0x45 | 0x55 | 0x4D | 0x5D | 0x59 | 0x41 | 0x51 => {
                     extra_cycles = self.eor(&opcode.mode);
                 }
@@ -967,7 +1015,14 @@ impl<'a> CPU<'a> {
                 }
 
                 // BRK
-                0x00 => return,
+                0x00 => {
+                    if self.exit_on_brk {
+                        return;
+                    }
+
+                    self.program_counter += 1;
+                    self.interrupt(BRK);
+                }
 
                 // NOP
                 0xea | 0x1A | 0x3A | 0x5A | 0x7A | 0xDA | 0xFA | 0x04 | 0x44 | 0x64 | 0x0C

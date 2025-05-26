@@ -1,7 +1,6 @@
 /.vscode
 /target
-/roms/licensed
-/roms/*.nes
+/roms
 /logs
 
 notes.md

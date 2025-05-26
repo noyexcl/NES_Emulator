@@ -5,15 +5,14 @@ use std::vec;
 fn init_cpu(instructions: Vec<u8>) -> CPU<'static> {
     let test_rom = TestRom::create_test_rom(instructions);
     let mut cpu = CPU::new(Bus::new(test_rom, |_, _, _| {}));
+    cpu.exit_on_brk = true;
     cpu.reset();
     cpu
 }
 
 #[test]
 fn test_0xa9_lda_immediate_load_data() {
-    let test_rom = TestRom::create_test_rom(vec![0xa9, 0x05, 0x00]);
-    let mut cpu = CPU::new(Bus::new(test_rom, |_, _, _| {}));
-    cpu.reset();
+    let mut cpu = init_cpu(vec![0xa9, 0x05, 0x00]);
     cpu.run();
     assert_eq!(cpu.register_a, 0x05);
     assert!(cpu.status.to_u8() & 0b000_0010 == 0b00);
@@ -22,18 +21,14 @@ fn test_0xa9_lda_immediate_load_data() {
 
 #[test]
 fn test_0xa9_lda_zero_frag() {
-    let test_rom = TestRom::create_test_rom(vec![0xa9, 0x00, 0x00]);
-    let mut cpu = CPU::new(Bus::new(test_rom, |_, _, _| {}));
-    cpu.reset();
+    let mut cpu = init_cpu(vec![0xa9, 0x00, 0x00]);
     cpu.run();
     assert!(cpu.status.to_u8() & 0b000_0010 == 0b10);
 }
 
 #[test]
 fn test_0xaa_tax_move_a_to_x() {
-    let test_rom = TestRom::create_test_rom(vec![0xaa, 0x00]);
-    let mut cpu = CPU::new(Bus::new(test_rom, |_, _, _| {}));
-    cpu.reset();
+    let mut cpu = init_cpu(vec![0xaa, 0x00]);
     cpu.register_a = 10;
     cpu.run();
 
@@ -42,9 +37,7 @@ fn test_0xaa_tax_move_a_to_x() {
 
 #[test]
 fn test_inx_overflow() {
-    let test_rom = TestRom::create_test_rom(vec![0xe8, 0xe8, 0x00]);
-    let mut cpu = CPU::new(Bus::new(test_rom, |_, _, _| {}));
-    cpu.reset();
+    let mut cpu = init_cpu(vec![0xe8, 0xe8, 0x00]);
     cpu.register_x = 0xff;
     cpu.run();
 
@@ -53,9 +46,7 @@ fn test_inx_overflow() {
 
 #[test]
 fn test_5_ops_working_togather() {
-    let test_rom = TestRom::create_test_rom(vec![0xa9, 0xc0, 0xaa, 0xe8, 0x00]);
-    let mut cpu = CPU::new(Bus::new(test_rom, |_, _, _| {}));
-    cpu.reset();
+    let mut cpu = init_cpu(vec![0xa9, 0xc0, 0xaa, 0xe8, 0x00]);
     cpu.run();
 
     assert_eq!(cpu.register_x, 0xc1)
@@ -63,9 +54,7 @@ fn test_5_ops_working_togather() {
 
 #[test]
 fn test_lda_from_memory() {
-    let test_rom = TestRom::create_test_rom(vec![0xa5, 0x10, 0x00]);
-    let mut cpu = CPU::new(Bus::new(test_rom, |_, _, _| {}));
-    cpu.reset();
+    let mut cpu = init_cpu(vec![0xa5, 0x10, 0x00]);
     cpu.mem_write(0x10, 0x55);
     cpu.run();
 
@@ -87,9 +76,7 @@ fn test_status_to_u8() {
 
 #[test]
 fn test_adc() {
-    let test_rom = TestRom::create_test_rom(vec![0xa9, 0xc0, 0x69, 0xc4, 0x00]);
-    let mut cpu = CPU::new(Bus::new(test_rom, |_, _, _| {}));
-    cpu.reset();
+    let mut cpu = init_cpu(vec![0xa9, 0xc0, 0x69, 0xc4, 0x00]);
     cpu.run();
 
     assert_eq!(cpu.register_a, 0x84);
@@ -100,9 +87,7 @@ fn test_adc() {
 
 #[test]
 fn test_adc2() {
-    let test_rom = TestRom::create_test_rom(vec![0xa9, 0x50, 0x69, 0x50, 0x00]);
-    let mut cpu = CPU::new(Bus::new(test_rom, |_, _, _| {}));
-    cpu.reset();
+    let mut cpu = init_cpu(vec![0xa9, 0x50, 0x69, 0x50, 0x00]);
     cpu.run();
 
     assert_eq!(cpu.register_a, 0xa0);
@@ -113,9 +98,7 @@ fn test_adc2() {
 
 #[test]
 fn test_adc3() {
-    let test_rom = TestRom::create_test_rom(vec![0xa9, 0xd0, 0x69, 0x90, 0x00]);
-    let mut cpu = CPU::new(Bus::new(test_rom, |_, _, _| {}));
-    cpu.reset();
+    let mut cpu = init_cpu(vec![0xa9, 0xd0, 0x69, 0x90, 0x00]);
     cpu.run();
 
     assert_eq!(cpu.register_a, 0x60);
@@ -126,9 +109,7 @@ fn test_adc3() {
 
 #[test]
 fn test_adc_ff() {
-    let test_rom = TestRom::create_test_rom(vec![0xa9, 0x7f, 0x69, 0x7f, 0x00]);
-    let mut cpu = CPU::new(Bus::new(test_rom, |_, _, _| {}));
-    cpu.reset();
+    let mut cpu = init_cpu(vec![0xa9, 0x7f, 0x69, 0x7f, 0x00]);
     cpu.status.carry_flag = true;
     cpu.run();
 
@@ -140,9 +121,7 @@ fn test_adc_ff() {
 
 #[test]
 fn test_adc_carry_in() {
-    let test_rom = TestRom::create_test_rom(vec![0xa9, 0x50, 0x69, 0x10, 0x00]);
-    let mut cpu = CPU::new(Bus::new(test_rom, |_, _, _| {}));
-    cpu.reset();
+    let mut cpu = init_cpu(vec![0xa9, 0x50, 0x69, 0x10, 0x00]);
     cpu.status.carry_flag = true;
 
     cpu.run();
@@ -155,9 +134,7 @@ fn test_adc_carry_in() {
 
 #[test]
 fn test_sbc() {
-    let test_rom = TestRom::create_test_rom(vec![0xa9, 0x50, 0xE9, 0xf0, 0x00]);
-    let mut cpu = CPU::new(Bus::new(test_rom, |_, _, _| {}));
-    cpu.reset();
+    let mut cpu = init_cpu(vec![0xa9, 0x50, 0xE9, 0xf0, 0x00]);
     cpu.run();
 
     assert_eq!(cpu.register_a, 0x5f);
@@ -168,9 +145,7 @@ fn test_sbc() {
 
 #[test]
 fn test_sbc2() {
-    let test_rom = TestRom::create_test_rom(vec![0xa9, 0x50, 0xe9, 0xb0, 0x00]);
-    let mut cpu = CPU::new(Bus::new(test_rom, |_, _, _| {}));
-    cpu.reset();
+    let mut cpu = init_cpu(vec![0xa9, 0x50, 0xe9, 0xb0, 0x00]);
     cpu.run();
 
     assert_eq!(cpu.register_a, 0x9f);
@@ -181,9 +156,7 @@ fn test_sbc2() {
 
 #[test]
 fn test_sbc3() {
-    let test_rom = TestRom::create_test_rom(vec![0xa9, 0xd0, 0xe9, 0x70, 0x00]);
-    let mut cpu = CPU::new(Bus::new(test_rom, |_, _, _| {}));
-    cpu.reset();
+    let mut cpu = init_cpu(vec![0xa9, 0xd0, 0xe9, 0x70, 0x00]);
     cpu.run();
 
     assert_eq!(cpu.register_a, 0x5f);
@@ -194,16 +167,12 @@ fn test_sbc3() {
 
 #[test]
 fn test_and() {
-    let test_rom = TestRom::create_test_rom(vec![0xa9, 0b1010_1010, 0x29, 0b0101_0101, 0x00]);
-    let mut cpu = CPU::new(Bus::new(test_rom, |_, _, _| {}));
-    cpu.reset();
+    let mut cpu = init_cpu(vec![0xa9, 0b1010_1010, 0x29, 0b0101_0101, 0x00]);
     cpu.run();
 
     assert_eq!(cpu.register_a, 0);
 
-    let test_rom = TestRom::create_test_rom(vec![0xa9, 0b1010_1010, 0x29, 0b0101_1010, 0x00]);
-    let mut cpu = CPU::new(Bus::new(test_rom, |_, _, _| {}));
-    cpu.reset();
+    let mut cpu = init_cpu(vec![0xa9, 0b1010_1010, 0x29, 0b0101_1010, 0x00]);
     cpu.run();
 
     assert_eq!(cpu.register_a, 0b0000_1010);
@@ -211,9 +180,7 @@ fn test_and() {
 
 #[test]
 fn test_asl_accumulator() {
-    let test_rom = TestRom::create_test_rom(vec![0xa9, 0x50, 0x0a, 0x00]);
-    let mut cpu = CPU::new(Bus::new(test_rom, |_, _, _| {}));
-    cpu.reset();
+    let mut cpu = init_cpu(vec![0xa9, 0x50, 0x0a, 0x00]);
     cpu.run();
 
     assert_eq!(cpu.register_a, 0xa0);
@@ -221,9 +188,7 @@ fn test_asl_accumulator() {
     assert!(!cpu.status.zero_flag);
     assert!(!cpu.status.carry_flag);
 
-    let test_rom = TestRom::create_test_rom(vec![0xa9, 0xf0, 0x0a, 0x00]);
-    let mut cpu = CPU::new(Bus::new(test_rom, |_, _, _| {}));
-    cpu.reset();
+    let mut cpu = init_cpu(vec![0xa9, 0xf0, 0x0a, 0x00]);
     cpu.run();
 
     assert_eq!(cpu.register_a, 0xe0);
@@ -234,9 +199,7 @@ fn test_asl_accumulator() {
 
 #[test]
 fn test_asl() {
-    let test_rom = TestRom::create_test_rom(vec![0xa9, 0b1010_1010, 0x85, 0xc0, 0x06, 0xc0, 0x00]);
-    let mut cpu = CPU::new(Bus::new(test_rom, |_, _, _| {}));
-    cpu.reset();
+    let mut cpu = init_cpu(vec![0xa9, 0b1010_1010, 0x85, 0xc0, 0x06, 0xc0, 0x00]);
     cpu.run();
 
     assert_eq!(cpu.mem_read(0xc0), 0b0101_0100);
@@ -247,9 +210,7 @@ fn test_asl() {
 
 #[test]
 fn test_bcc() {
-    let test_rom = TestRom::create_test_rom(vec![0x90, 0x01, 0x00, 0xa9, 0x51, 0x00]);
-    let mut cpu = CPU::new(Bus::new(test_rom, |_, _, _| {}));
-    cpu.reset();
+    let mut cpu = init_cpu(vec![0x90, 0x01, 0x00, 0xa9, 0x51, 0x00]);
     cpu.run();
 
     assert_eq!(cpu.register_a, 0x51);
@@ -257,10 +218,7 @@ fn test_bcc() {
 
 #[test]
 fn test_bcc2() {
-    let test_rom =
-        TestRom::create_test_rom(vec![0x90, 0x04, 0x00, 0xa9, 0x51, 0x00, 0x90, 0xFB, 0x00]);
-    let mut cpu = CPU::new(Bus::new(test_rom, |_, _, _| {}));
-    cpu.reset();
+    let mut cpu = init_cpu(vec![0x90, 0x04, 0x00, 0xa9, 0x51, 0x00, 0x90, 0xFB, 0x00]);
     cpu.run();
 
     assert_eq!(cpu.register_a, 0x51);
@@ -268,9 +226,7 @@ fn test_bcc2() {
 
 #[test]
 fn test_beq() {
-    let test_rom = TestRom::create_test_rom(vec![0xf0, 0x01, 0x00, 0xa9, 0x51, 0x00]);
-    let mut cpu = CPU::new(Bus::new(test_rom, |_, _, _| {}));
-    cpu.reset();
+    let mut cpu = init_cpu(vec![0xf0, 0x01, 0x00, 0xa9, 0x51, 0x00]);
     cpu.status.zero_flag = true;
     cpu.run();
 
@@ -279,9 +235,7 @@ fn test_beq() {
 
 #[test]
 fn test_bmi() {
-    let test_rom = TestRom::create_test_rom(vec![0x30, 0x01, 0x00, 0xa9, 0x51, 0x00]);
-    let mut cpu = CPU::new(Bus::new(test_rom, |_, _, _| {}));
-    cpu.reset();
+    let mut cpu = init_cpu(vec![0x30, 0x01, 0x00, 0xa9, 0x51, 0x00]);
     cpu.status.negative_flag = true;
     cpu.run();
 
@@ -290,7 +244,7 @@ fn test_bmi() {
 
 #[test]
 fn test_bit() {
-    let test_rom = TestRom::create_test_rom(vec![
+    let mut cpu = init_cpu(vec![
         0xa9,
         0b1010_1010,
         0x85,
@@ -301,8 +255,6 @@ fn test_bit() {
         0xc0,
         0x00,
     ]);
-    let mut cpu = CPU::new(Bus::new(test_rom, |_, _, _| {}));
-    cpu.reset();
     cpu.run();
 
     assert!(!cpu.status.zero_flag);
@@ -312,7 +264,7 @@ fn test_bit() {
 
 #[test]
 fn test_bit2() {
-    let test_rom = TestRom::create_test_rom(vec![
+    let mut cpu = init_cpu(vec![
         0xa9,
         0b0011_1111,
         0x85,
@@ -323,8 +275,6 @@ fn test_bit2() {
         0xc0,
         0x00,
     ]);
-    let mut cpu = CPU::new(Bus::new(test_rom, |_, _, _| {}));
-    cpu.reset();
     cpu.run();
 
     assert!(cpu.status.zero_flag);
@@ -334,9 +284,7 @@ fn test_bit2() {
 
 #[test]
 fn test_bne() {
-    let test_rom = TestRom::create_test_rom(vec![0xd0, 0x01, 0x00, 0xa9, 0x51, 0x00]);
-    let mut cpu = CPU::new(Bus::new(test_rom, |_, _, _| {}));
-    cpu.reset();
+    let mut cpu = init_cpu(vec![0xd0, 0x01, 0x00, 0xa9, 0x51, 0x00]);
     cpu.status.zero_flag = false;
     cpu.run();
 
@@ -345,9 +293,7 @@ fn test_bne() {
 
 #[test]
 fn test_bpl() {
-    let test_rom = TestRom::create_test_rom(vec![0x10, 0x01, 0x00, 0xa9, 0x51, 0x00]);
-    let mut cpu = CPU::new(Bus::new(test_rom, |_, _, _| {}));
-    cpu.reset();
+    let mut cpu = init_cpu(vec![0x10, 0x01, 0x00, 0xa9, 0x51, 0x00]);
     cpu.status.negative_flag = false;
     cpu.run();
 
@@ -356,9 +302,7 @@ fn test_bpl() {
 
 #[test]
 fn test_bvc() {
-    let test_rom = TestRom::create_test_rom(vec![0x50, 0x01, 0x00, 0xa9, 0x51, 0x00]);
-    let mut cpu = CPU::new(Bus::new(test_rom, |_, _, _| {}));
-    cpu.reset();
+    let mut cpu = init_cpu(vec![0x50, 0x01, 0x00, 0xa9, 0x51, 0x00]);
     cpu.status.overflow_flag = false;
     cpu.run();
 
@@ -367,9 +311,7 @@ fn test_bvc() {
 
 #[test]
 fn test_bvs() {
-    let test_rom = TestRom::create_test_rom(vec![0x70, 0x01, 0x00, 0xa9, 0x51, 0x00]);
-    let mut cpu = CPU::new(Bus::new(test_rom, |_, _, _| {}));
-    cpu.reset();
+    let mut cpu = init_cpu(vec![0x70, 0x01, 0x00, 0xa9, 0x51, 0x00]);
     cpu.status.overflow_flag = true;
     cpu.run();
 
@@ -378,9 +320,7 @@ fn test_bvs() {
 
 #[test]
 fn test_cmp() {
-    let test_rom = TestRom::create_test_rom(vec![0xc9, 0x51, 0x00]);
-    let mut cpu = CPU::new(Bus::new(test_rom, |_, _, _| {}));
-    cpu.reset();
+    let mut cpu = init_cpu(vec![0xc9, 0x51, 0x00]);
     cpu.register_a = 0x51;
     cpu.run();
 
@@ -391,9 +331,7 @@ fn test_cmp() {
 
 #[test]
 fn test_cpx() {
-    let test_rom = TestRom::create_test_rom(vec![0xe0, 0x51, 0x00]);
-    let mut cpu = CPU::new(Bus::new(test_rom, |_, _, _| {}));
-    cpu.reset();
+    let mut cpu = init_cpu(vec![0xe0, 0x51, 0x00]);
     cpu.register_x = 0x51;
     cpu.run();
 
@@ -404,9 +342,7 @@ fn test_cpx() {
 
 #[test]
 fn test_cpy() {
-    let test_rom = TestRom::create_test_rom(vec![0xc0, 0x51, 0x00]);
-    let mut cpu = CPU::new(Bus::new(test_rom, |_, _, _| {}));
-    cpu.reset();
+    let mut cpu = init_cpu(vec![0xc0, 0x51, 0x00]);
     cpu.register_y = 0x51;
     cpu.run();
 
@@ -417,9 +353,7 @@ fn test_cpy() {
 
 #[test]
 fn test_dec() {
-    let test_rom = TestRom::create_test_rom(vec![0xa9, 0x51, 0x85, 0xc0, 0xc6, 0xc0, 0x00]);
-    let mut cpu = CPU::new(Bus::new(test_rom, |_, _, _| {}));
-    cpu.reset();
+    let mut cpu = init_cpu(vec![0xa9, 0x51, 0x85, 0xc0, 0xc6, 0xc0, 0x00]);
     cpu.run();
 
     assert_eq!(cpu.mem_read(0xc0), 0x50);
@@ -429,9 +363,7 @@ fn test_dec() {
 
 #[test]
 fn test_dex() {
-    let test_rom = TestRom::create_test_rom(vec![0xca, 0x00]);
-    let mut cpu = CPU::new(Bus::new(test_rom, |_, _, _| {}));
-    cpu.reset();
+    let mut cpu = init_cpu(vec![0xca, 0x00]);
     cpu.register_x = 0x51;
     cpu.run();
 
@@ -442,9 +374,7 @@ fn test_dex() {
 
 #[test]
 fn test_dey() {
-    let test_rom = TestRom::create_test_rom(vec![0x88, 0x00]);
-    let mut cpu = CPU::new(Bus::new(test_rom, |_, _, _| {}));
-    cpu.reset();
+    let mut cpu = init_cpu(vec![0x88, 0x00]);
     cpu.register_y = 0x51;
     cpu.run();
 
@@ -455,9 +385,7 @@ fn test_dey() {
 
 #[test]
 fn test_eor() {
-    let test_rom = TestRom::create_test_rom(vec![0x49, 0x51, 0x00]);
-    let mut cpu = CPU::new(Bus::new(test_rom, |_, _, _| {}));
-    cpu.reset();
+    let mut cpu = init_cpu(vec![0x49, 0x51, 0x00]);
     cpu.register_a = 0x51;
     cpu.run();
 
@@ -468,9 +396,7 @@ fn test_eor() {
 
 #[test]
 fn test_inc() {
-    let test_rom = TestRom::create_test_rom(vec![0xa9, 0x51, 0x85, 0xc0, 0xe6, 0xc0, 0x00]);
-    let mut cpu = CPU::new(Bus::new(test_rom, |_, _, _| {}));
-    cpu.reset();
+    let mut cpu = init_cpu(vec![0xa9, 0x51, 0x85, 0xc0, 0xe6, 0xc0, 0x00]);
     cpu.run();
 
     assert_eq!(cpu.mem_read(0xc0), 0x52);
@@ -480,9 +406,7 @@ fn test_inc() {
 
 #[test]
 fn test_iny() {
-    let test_rom = TestRom::create_test_rom(vec![0xc8, 0x00]);
-    let mut cpu = CPU::new(Bus::new(test_rom, |_, _, _| {}));
-    cpu.reset();
+    let mut cpu = init_cpu(vec![0xc8, 0x00]);
     cpu.register_y = 0x51;
     cpu.run();
 
@@ -493,11 +417,9 @@ fn test_iny() {
 
 #[test]
 fn test_jmp() {
-    let test_rom = TestRom::create_test_rom(vec![
+    let mut cpu = init_cpu(vec![
         0xa9, 0x01, 0x85, 0xf0, 0xa9, 0xcc, 0x85, 0xf1, 0x6c, 0xf0, 0x00,
     ]);
-    let mut cpu = CPU::new(Bus::new(test_rom, |_, _, _| {}));
-    cpu.reset();
     cpu.run();
 
     assert_eq!(cpu.program_counter, 0xcc02);
@@ -505,9 +427,7 @@ fn test_jmp() {
 
 #[test]
 fn test_jsr() {
-    let test_rom = TestRom::create_test_rom(vec![0x20, 0x03, 0x80, 0xa9, 0x51, 0x00]);
-    let mut cpu = CPU::new(Bus::new(test_rom, |_, _, _| {}));
-    cpu.reset();
+    let mut cpu = init_cpu(vec![0x20, 0x03, 0x80, 0xa9, 0x51, 0x00]);
     cpu.run();
 
     assert_eq!(cpu.register_a, 0x51);
@@ -520,9 +440,7 @@ fn test_jsr() {
 
 #[test]
 fn test_rts() {
-    let test_rom = TestRom::create_test_rom(vec![0x20, 0x04, 0x80, 0x00, 0xa9, 0x51, 0x60, 0x00]);
-    let mut cpu = CPU::new(Bus::new(test_rom, |_, _, _| {}));
-    cpu.reset();
+    let mut cpu = init_cpu(vec![0x20, 0x04, 0x80, 0x00, 0xa9, 0x51, 0x60, 0x00]);
     cpu.run();
 
     assert_eq!(cpu.stack_pointer, STACK_RESET);
@@ -531,9 +449,7 @@ fn test_rts() {
 
 #[test]
 fn test_ldx() {
-    let test_rom = TestRom::create_test_rom(vec![0xa2, 0x51, 0x00]);
-    let mut cpu = CPU::new(Bus::new(test_rom, |_, _, _| {}));
-    cpu.reset();
+    let mut cpu = init_cpu(vec![0xa2, 0x51, 0x00]);
     cpu.run();
 
     assert_eq!(cpu.register_x, 0x51);
@@ -541,9 +457,7 @@ fn test_ldx() {
 
 #[test]
 fn test_ldy() {
-    let test_rom = TestRom::create_test_rom(vec![0xa0, 0x51, 0x00]);
-    let mut cpu = CPU::new(Bus::new(test_rom, |_, _, _| {}));
-    cpu.reset();
+    let mut cpu = init_cpu(vec![0xa0, 0x51, 0x00]);
     cpu.run();
 
     assert_eq!(cpu.register_y, 0x51);
@@ -551,9 +465,7 @@ fn test_ldy() {
 
 #[test]
 fn test_lsr_accumulator() {
-    let test_rom = TestRom::create_test_rom(vec![0x4a, 0x00]);
-    let mut cpu = CPU::new(Bus::new(test_rom, |_, _, _| {}));
-    cpu.reset();
+    let mut cpu = init_cpu(vec![0x4a, 0x00]);
     cpu.register_a = 0b0101_0101;
     cpu.run();
 
@@ -563,9 +475,7 @@ fn test_lsr_accumulator() {
 
 #[test]
 fn test_ora() {
-    let test_rom = TestRom::create_test_rom(vec![0x09, 0b0101_0101, 0x00]);
-    let mut cpu = CPU::new(Bus::new(test_rom, |_, _, _| {}));
-    cpu.reset();
+    let mut cpu = init_cpu(vec![0x09, 0b0101_0101, 0x00]);
     cpu.register_a = 0b1010_1010;
     cpu.run();
 
@@ -574,9 +484,7 @@ fn test_ora() {
 
 #[test]
 fn test_pha() {
-    let test_rom = TestRom::create_test_rom(vec![0x48, 0x00]);
-    let mut cpu = CPU::new(Bus::new(test_rom, |_, _, _| {}));
-    cpu.reset();
+    let mut cpu = init_cpu(vec![0x48, 0x00]);
     cpu.register_a = 0x51;
     cpu.run();
 
@@ -585,9 +493,7 @@ fn test_pha() {
 
 #[test]
 fn test_php() {
-    let test_rom = TestRom::create_test_rom(vec![0x08, 0x00]);
-    let mut cpu = CPU::new(Bus::new(test_rom, |_, _, _| {}));
-    cpu.reset();
+    let mut cpu = init_cpu(vec![0x08, 0x00]);
     cpu.status.carry_flag = true;
     cpu.run();
 
@@ -596,9 +502,7 @@ fn test_php() {
 
 #[test]
 fn test_pla() {
-    let test_rom = TestRom::create_test_rom(vec![0xa9, 0x51, 0x48, 0xa9, 0x50, 0x68, 0x00]);
-    let mut cpu = CPU::new(Bus::new(test_rom, |_, _, _| {}));
-    cpu.reset();
+    let mut cpu = init_cpu(vec![0xa9, 0x51, 0x48, 0xa9, 0x50, 0x68, 0x00]);
     cpu.run();
 
     assert_eq!(cpu.register_a, 0x51);
@@ -606,9 +510,7 @@ fn test_pla() {
 
 #[test]
 fn test_plp() {
-    let test_rom = TestRom::create_test_rom(vec![0x08, 0x38, 0x28, 0x00]);
-    let mut cpu = CPU::new(Bus::new(test_rom, |_, _, _| {}));
-    cpu.reset();
+    let mut cpu = init_cpu(vec![0x08, 0x38, 0x28, 0x00]);
     cpu.run();
 
     assert!(!cpu.status.carry_flag);
@@ -616,9 +518,7 @@ fn test_plp() {
 
 #[test]
 fn test_rol_accumulator() {
-    let test_rom = TestRom::create_test_rom(vec![0xa9, 0b1010_1010, 0x2a, 0x00]);
-    let mut cpu = CPU::new(Bus::new(test_rom, |_, _, _| {}));
-    cpu.reset();
+    let mut cpu = init_cpu(vec![0xa9, 0b1010_1010, 0x2a, 0x00]);
     cpu.status.carry_flag = true;
     cpu.run();
 
@@ -630,9 +530,7 @@ fn test_rol_accumulator() {
 
 #[test]
 fn test_rol() {
-    let test_rom = TestRom::create_test_rom(vec![0xa9, 0b1010_1010, 0x85, 0xc0, 0x26, 0xc0, 0x00]);
-    let mut cpu = CPU::new(Bus::new(test_rom, |_, _, _| {}));
-    cpu.reset();
+    let mut cpu = init_cpu(vec![0xa9, 0b1010_1010, 0x85, 0xc0, 0x26, 0xc0, 0x00]);
     cpu.status.carry_flag = true;
     cpu.run();
 
@@ -644,9 +542,7 @@ fn test_rol() {
 
 #[test]
 fn test_ror_accumulator() {
-    let test_rom = TestRom::create_test_rom(vec![0xa9, 0b1010_1010, 0x6a, 0x00]);
-    let mut cpu = CPU::new(Bus::new(test_rom, |_, _, _| {}));
-    cpu.reset();
+    let mut cpu = init_cpu(vec![0xa9, 0b1010_1010, 0x6a, 0x00]);
     cpu.status.carry_flag = true;
     cpu.run();
 
@@ -658,9 +554,7 @@ fn test_ror_accumulator() {
 
 #[test]
 fn test_ror() {
-    let test_rom = TestRom::create_test_rom(vec![0xa9, 0b1010_1010, 0x85, 0xc0, 0x66, 0xc0, 0x00]);
-    let mut cpu = CPU::new(Bus::new(test_rom, |_, _, _| {}));
-    cpu.reset();
+    let mut cpu = init_cpu(vec![0xa9, 0b1010_1010, 0x85, 0xc0, 0x66, 0xc0, 0x00]);
     cpu.status.carry_flag = true;
     cpu.run();
 
@@ -672,9 +566,7 @@ fn test_ror() {
 
 #[test]
 fn test_stx() {
-    let test_rom = TestRom::create_test_rom(vec![0xa9, 0x51, 0xaa, 0x86, 0xc0, 0x00]);
-    let mut cpu = CPU::new(Bus::new(test_rom, |_, _, _| {}));
-    cpu.reset();
+    let mut cpu = init_cpu(vec![0xa9, 0x51, 0xaa, 0x86, 0xc0, 0x00]);
     cpu.run();
 
     assert_eq!(cpu.mem_read(0xc0), 0x51);
@@ -682,9 +574,7 @@ fn test_stx() {
 
 #[test]
 fn test_sty() {
-    let test_rom = TestRom::create_test_rom(vec![0xa9, 0x51, 0xa8, 0x84, 0xc0, 0x00]);
-    let mut cpu = CPU::new(Bus::new(test_rom, |_, _, _| {}));
-    cpu.reset();
+    let mut cpu = init_cpu(vec![0xa9, 0x51, 0xa8, 0x84, 0xc0, 0x00]);
     cpu.run();
 
     assert_eq!(cpu.mem_read(0xc0), 0x51);
@@ -692,9 +582,7 @@ fn test_sty() {
 
 #[test]
 fn test_tay() {
-    let test_rom = TestRom::create_test_rom(vec![0xa9, 0x51, 0xa8, 0x00]);
-    let mut cpu = CPU::new(Bus::new(test_rom, |_, _, _| {}));
-    cpu.reset();
+    let mut cpu = init_cpu(vec![0xa9, 0x51, 0xa8, 0x00]);
     cpu.run();
 
     assert_eq!(cpu.register_y, 0x51);
@@ -702,9 +590,7 @@ fn test_tay() {
 
 #[test]
 fn test_tsx() {
-    let test_rom = TestRom::create_test_rom(vec![0xba, 0x00]);
-    let mut cpu = CPU::new(Bus::new(test_rom, |_, _, _| {}));
-    cpu.reset();
+    let mut cpu = init_cpu(vec![0xba, 0x00]);
     cpu.run();
 
     assert_eq!(cpu.register_x, 0xfd);

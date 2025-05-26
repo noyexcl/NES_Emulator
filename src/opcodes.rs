@@ -259,6 +259,9 @@ lazy_static! {
     // Effectively the same as ANC
     OpCode::new(0x2B, "ANC2", 2, 2, AddressingMode::Immediate),
 
+    OpCode::new(0x9E, "SHX", 3, 5, AddressingMode::Absolute_Y),
+    OpCode::new(0x9C, "SHY", 3, 5, AddressingMode::Absolute_X),
+
     // LSR + EOR (Unofficial opcodes)
     OpCode::new(0x47, "SRE", 2, 5, AddressingMode::ZeroPage),
     OpCode::new(0x57, "SRE", 2, 6, AddressingMode::ZeroPage_X),
