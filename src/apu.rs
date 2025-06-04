@@ -113,7 +113,7 @@ impl APU {
 
     pub fn reset(&mut self) {
         self.frame_counter.write_register(0x00);
-        for _ in 0..14 {
+        for _ in 0..10 {
             self.tick();
         }
     }

@@ -1,9 +1,6 @@
 use std::collections::HashMap;
 
-use crate::{
-    cpu::{AddressingMode, CPU},
-    opcodes,
-};
+use crate::{cpu::CPU, opcodes, opcodes::AddressingMode};
 
 /// Provide a way to view the value at a specific address without causing side effects for logging.
 pub trait Inspector {
@@ -179,14 +176,14 @@ pub fn trace(cpu: &CPU) -> String {
                 )
             ));
         }
-        AddressingMode::NoneAddressing => match opcode.code {
+        AddressingMode::Relative => {
             // ブランチ系のRelativeアドレッシングモードでは、ジャンプ先のアドレスを計算して表示する
-            0x90 | 0xB0 | 0xF0 | 0x30 | 0xD0 | 0x10 | 0x50 | 0x70 => {
-                let offset = cpu.bus.inspect(cpu.program_counter + 1) as i8 as i16;
-                let jmp_addr = ((cpu.program_counter + 2) as i16).wrapping_add(offset) as u16;
+            let offset = cpu.bus.inspect(cpu.program_counter + 1) as i8 as i16;
+            let jmp_addr = ((cpu.program_counter + 2) as i16).wrapping_add(offset) as u16;
 
-                result.push_str(&format!("{:28}", format!("${:04X}", jmp_addr)));
-            }
+            result.push_str(&format!("{:28}", format!("${:04X}", jmp_addr)));
+        }
+        AddressingMode::NoneAddressing => match opcode.code {
             // Accumulatorアドレッシングモードの場合、Aと表示する
             0x4A | 0x0A | 0x6A | 0x2A => {
                 result.push_str(&format!("{:28}", "A"));
@@ -340,14 +337,14 @@ pub fn trace2(cpu: &CPU) -> String {
                 format!("(${:02X}),Y [${:04X}] = ${:02X}", base, addr, value)
             ));
         }
-        AddressingMode::NoneAddressing => match opcode.code {
+        AddressingMode::Relative => {
             // ブランチ系のRelativeアドレッシングモードでは、ジャンプ先のアドレスを計算して表示する
-            0x90 | 0xB0 | 0xF0 | 0x30 | 0xD0 | 0x10 | 0x50 | 0x70 => {
-                let offset = cpu.bus.inspect(cpu.program_counter + 1) as i8 as i16;
-                let jmp_addr = ((cpu.program_counter + 2) as i16).wrapping_add(offset) as u16;
+            let offset = cpu.bus.inspect(cpu.program_counter + 1) as i8 as i16;
+            let jmp_addr = ((cpu.program_counter + 2) as i16).wrapping_add(offset) as u16;
 
-                result.push_str(&format!("{:29}", format!("${:04X}", jmp_addr)));
-            }
+            result.push_str(&format!("{:29}", format!("${:04X}", jmp_addr)));
+        }
+        AddressingMode::NoneAddressing => match opcode.code {
             // Accumulatorアドレッシングモードの場合、Aと表示する
             0x4A | 0x0A | 0x6A | 0x2A => {
                 result.push_str(&format!("{:29}", "A"));
@@ -366,6 +363,8 @@ pub fn trace2(cpu: &CPU) -> String {
         cpu.stack_pointer,
         cpu.status.to_u8() & 0b1101_1111
     ));
+
+    // result.push_str(&format!("Cycle:{} ", cpu.bus.cycles));
 
     result.push_str(&format!("BC:{:02X} ", opcode.code));
 
@@ -439,6 +438,7 @@ fn get_operand_address(cpu: &CPU, mode: &AddressingMode) -> u16 {
             let deref_base = (hi as u16) << 8 | (lo as u16);
             deref_base.wrapping_add(cpu.register_y as u16)
         }
+        AddressingMode::Relative => counter,
         AddressingMode::NoneAddressing => {
             panic!("mode {:?} is not supported", mode);
         }

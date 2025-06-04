@@ -104,7 +104,7 @@ impl<'call> Bus<'call> {
     pub fn reset(&mut self) {
         self.cycles = 7;
 
-        for _ in 0..7 {
+        for _ in 0..= 7 {
             for _ in 0..3 {
                 self.ppu.tick();
             }
@@ -126,15 +126,11 @@ impl Mem for Bus<'_> {
                 let mirror_down_addr = addr & 0b0000_0111_1111_1111;
                 self.cpu_vram[mirror_down_addr as usize]
             }
-            0x2000 | 0x2001 | 0x2003 | 0x2005 | 0x2006 | 0x4014 => {
-                panic!("Attempt to read from write-only PPU address {:x}", addr);
-            }
+            0x2000 | 0x2001 | 0x2003 | 0x2005 | 0x2006 | 0x4014 => 0x00, // TODO: Open bus
             0x2002 => self.ppu.read_status(),
             0x2004 => self.ppu.read_oam_data(),
             0x2007 => self.ppu.read_data(),
-            0x4000..=0x4014 => {
-                panic!("Attempt to read from write-only APU address {:x}", addr);
-            }
+            0x4000..=0x4014 => 0x00, // TODO: Open bus
             0x4015 => self.apu.read_register(addr),
             0x4016 => self.joypad.read(),
             0x4017 => 0, // Ignore Joypad 2
