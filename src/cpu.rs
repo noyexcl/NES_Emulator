@@ -870,7 +870,7 @@ impl<'a> CPU<'a> {
             self.irq = self.irq_pending;
             self.irq_pending = self.bus.poll_irq_status();
 
-            if let Some(_nmi) = self.bus.poll_nmi_status() {
+            if self.bus.poll_nmi_status() {
                 self.state = State::NMI(0)
             } else if self.irq && !self.status.interrupt_disable_flag {
                 self.state = State::IRQ(0)

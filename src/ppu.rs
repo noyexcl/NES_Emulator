@@ -4,12 +4,12 @@ use self::registers::{
     addr::AddrRegister, control::ControlRegister, mask::MaskRegister, scroll::ScrollRegister,
     status::StatusRegister,
 };
-use crate::{rom::Mirroring, trace::Inspector};
+use crate::{mem::Mem, rom::Mirroring, trace::Inspector};
 
 #[allow(clippy::upper_case_acronyms)]
 #[derive(Debug)]
 pub struct PPU {
-    pub nmi_interrupt: Option<u8>,
+    nmi_interrupt: Option<u8>,
     /// Set to true when NMI interrupt is occurred or a frame's worth of cycles has elapsed  
     pub chr_rom: Vec<u8>,
     pub chr_ram: [u8; 2048],
@@ -18,14 +18,18 @@ pub struct PPU {
     pub mirroring: Mirroring,
     pub ctrl: ControlRegister,
     pub mask: MaskRegister,
+    pending_mask: Option<(u8, u8)>,
     pub status: StatusRegister,
     pub scroll: ScrollRegister,
     pub oam_addr: u8,
     pub oam_data: [u8; 256],
     pub addr: AddrRegister,
     internal_data_buf: u8,
-    scanline: u16,
-    cycles: usize,
+    pub scanline: u16,
+    pub cycles: usize,
+    open_bus: u8,
+    odd_frame: bool,
+    suppress_vblank: bool,
 }
 
 impl PPU {
@@ -39,6 +43,7 @@ impl PPU {
             mirroring,
             ctrl: ControlRegister::new(),
             mask: MaskRegister::new(),
+            pending_mask: None,
             status: StatusRegister::new(),
             scroll: ScrollRegister::new(),
             oam_addr: 0,
@@ -47,6 +52,9 @@ impl PPU {
             scanline: 0,
             cycles: 0,
             nmi_interrupt: None,
+            open_bus: 0,
+            odd_frame: false,
+            suppress_vblank: false,
         }
     }
 
@@ -79,13 +87,37 @@ impl PPU {
         let before_nmi_status = self.ctrl.generate_vblank_nmi();
         self.ctrl = ControlRegister::from_bits_truncate(value);
 
-        if !before_nmi_status && self.ctrl.generate_vblank_nmi() && self.status.is_in_vblank() {
+        // Writing to CTRL register with value that enables vblank NMI while vblank flag in STATUS is 1
+        // immediately trigger NMI.
+        // If such writing occurs at the same time as vblank flag in STATUS is cleared (261, 0), NMI should not be triggered.
+        if !before_nmi_status
+            && self.ctrl.generate_vblank_nmi()
+            && (self.status.is_in_vblank() && self.scanline != 261)
+        {
             self.nmi_interrupt = Some(1);
+        }
+
+        // Disabling Vblank-NMI at the same time or after 1~2 cycles NMI occured supresses NMI.
+        if !self.ctrl.generate_vblank_nmi() && self.scanline == 241 && self.cycles <= 2 {
+            self.nmi_interrupt = None;
         }
     }
 
     pub fn write_to_mask(&mut self, value: u8) {
-        self.mask = MaskRegister::from_bits_truncate(value);
+        // Toggling rendering takes effect approximately 3-4 dots after the write.
+        // Other bits should be immediately applied?
+        self.pending_mask = Some((2, value));
+    }
+
+    fn update_mask(&mut self) {
+        if let Some((delay, value)) = self.pending_mask {
+            if delay == 0 {
+                self.mask = MaskRegister::from_bits_truncate(value);
+                self.pending_mask = None;
+            } else {
+                self.pending_mask = Some((delay - 1, value));
+            }
+        }
     }
 
     pub fn write_to_scroll(&mut self, value: u8) {
@@ -117,7 +149,24 @@ impl PPU {
         self.status.reset_vblank_status();
         self.addr.reset_latch();
         self.scroll.reset_latch();
-        value
+
+        /* Reading $2002 within a few PPU clocks of when VBL is set results in special-case behavior. */
+
+        // Reading one PPU clock before reads it as clear and never sets the flag or generates NMI for that frame.
+        if self.scanline == 241 && self.cycles == 0 {
+            self.suppress_vblank = true;
+            self.nmi_interrupt = None;
+            0
+        }
+        // Reading on the same PPU clock or one later reads it as set, clears it, and suppresses the NMI for that frame.
+        else if self.scanline == 241 && (self.cycles == 1 || self.cycles == 2) {
+            self.nmi_interrupt = None;
+            value
+        }
+        // Reading two or more PPU clocks before/after it's set behaves normally (reads flag's value, clears it, and doesn't affect NMI operation).
+        else {
+            value
+        }
     }
 
     fn increment_vram_addr(&mut self) {
@@ -146,11 +195,24 @@ impl PPU {
                     addr
                 )
             }
+            /*
             0x3f10 | 0x3f14 | 0x3f18 | 0x3f1c => {
                 let add_mirror = addr - 0x10;
                 self.palette_table[(add_mirror - 0x3f00) as usize] = value;
             }
-            0x3f00..=0x3fff => self.palette_table[(addr - 0x3f00) as usize] = value,
+            0x3f00..=0x3f1f => self.palette_table[(addr - 0x3f00) as usize] = value,
+            */
+            0x3f00..=0x3fff => {
+                let mut addr_mirrored = addr & 0x1f;
+
+                if let 0x10 | 0x14 | 0x18 | 0x1c = addr_mirrored {
+                    // Addresses $xx10/$xx14/$xx18/$xx1C in (0x3f00~0x3fff) are mirrors of $xx00/$xx04/$xx08/$xx0C
+                    // because sprite and background share that byte.
+                    addr_mirrored -= 0x10;
+                }
+
+                self.palette_table[addr_mirrored as usize] = value;
+            }
             _ => panic!("unexpected access to mirrored space = {:x}", addr),
         }
 
@@ -184,12 +246,24 @@ impl PPU {
             ),
 
             //Addresses $3F10/$3F14/$3F18/$3F1C are mirrors of $3F00/$3F04/$3F08/$3F0C
+            /*
             0x3f10 | 0x3f14 | 0x3f18 | 0x3f1c => {
                 let addr_mirror = addr - 0x10;
                 self.palette_table[(addr_mirror - 0x3f00) as usize]
             }
+            */
+            // 0x3f00..=0x3f1f => self.palette_table[(addr - 0x3f00) as usize],
+            0x3f00..=0x3fff => {
+                let mut addr_mirrored = addr & 0x1f;
 
-            0x3f00..=0x3fff => self.palette_table[(addr - 0x3f00) as usize],
+                if let 0x10 | 0x14 | 0x18 | 0x1c = addr_mirrored {
+                    // Addresses $xx10/$xx14/$xx18/$xx1C in (0x3f00~0x3fff) are mirrors of $xx00/$xx04/$xx08/$xx0C
+                    // because sprite and background share that byte.
+                    addr_mirrored -= 0x10;
+                }
+
+                self.palette_table[addr_mirrored as usize]
+            }
             _ => panic!("unexpected access to mirrored space = {:x}", addr),
         }
     }
@@ -205,36 +279,84 @@ impl PPU {
     }
 
     pub fn tick(&mut self) -> bool {
-        self.cycles += 1;
+        let mut frame_ready = false;
 
-        if self.cycles >= 341 {
-            if self.is_sprite_0_hit(self.cycles) {
-                self.status.set_sprite_zero_hit(true);
+        self.update_mask();
+
+        match (self.scanline, self.cycles) {
+            (0..=239, 0) => {
+                // Idle cycle
             }
-
-            self.cycles -= 341;
-            self.scanline += 1;
-
-            if self.scanline == 241 {
-                self.status.set_vblank_status(true);
-                self.status.set_sprite_zero_hit(false);
-
+            (0..=239, 1..=256) => {
+                // Fetch data
+            }
+            (0..=239, 257..=320) => {
+                // Fetch tile data for sprites on the next scanline. every step takes 2 cycles (8 cycles in total).
+                // 1. Garbage nametable byte
+                // 2. Garbage nametable byte
+                // 3. Pattern table tile low
+                // 4. Pattern table tile high (pattern table low + 8 bytes)
+            }
+            (0..=239, 321..=336) => {
+                // Fetch first 2 tiles for the next scanline. every step takes 2 cycles.
+                // 1. Nametable byte
+                // 2. Attribute table byte
+                // 3. Pattern table tile low
+                // 4. Pattern table tile hight (pattern table low + 8 bytes)
+            }
+            (0..=239, 337..=340) => {
+                // Fetch 2 bytes (dummy). every step takes 2 cycles (4 cycles in total).
+                // 1. Nametable byte
+                // 2. Nametable byte
+            }
+            (240, 340) => {
                 if self.ctrl.generate_vblank_nmi() {
                     self.nmi_interrupt = Some(1);
                 }
 
-                return true;
+                frame_ready = true;
             }
+            (241, 0) => {
+                if !self.suppress_vblank {
+                    self.status.set_vblank_status(true);
+                }
 
-            if self.scanline == 262 {
-                self.scanline = 0;
-                self.nmi_interrupt = None;
-                self.status.set_sprite_zero_hit(false);
-                self.status.reset_vblank_status();
+                self.suppress_vblank = false;
+                self.status.set_sprite_zero_hit(false); // Is this appropriate?
             }
+            (241..=260, _) => {
+                // PPU Makes no memory access during these scanlines.
+            }
+            (261, 0) => {
+                self.status.reset_vblank_status();
+                self.status.set_sprite_zero_hit(false);
+                self.status.set_sprite_overflow(false);
+                //self.nmi_interrupt = None;
+            }
+            (261, _) => {
+                // Pre-render scanline
+            }
+            _ => (),
         }
 
-        false
+        self.cycles += 1;
+
+        if self.cycles > 340 || (self.cycles == 340 && self.should_skip_last_tick()) {
+            // Is this appropriate?
+            if self.is_sprite_0_hit(self.cycles) {
+                self.status.set_sprite_zero_hit(true);
+            }
+
+            self.cycles = 0;
+            self.scanline += 1;
+        }
+
+        if self.scanline > 261 {
+            self.scanline = 0;
+            self.odd_frame = !self.odd_frame;
+        }
+
+        frame_ready
     }
 
     fn is_sprite_0_hit(&self, cycle: usize) -> bool {
@@ -242,24 +364,102 @@ impl PPU {
         let x = self.oam_data[3] as usize;
         (y == self.scanline as usize) && x <= cycle && self.mask.show_sprite()
     }
+
+    fn should_skip_last_tick(&self) -> bool {
+        self.scanline == 261
+            && self.odd_frame
+            && (self.mask.contains(MaskRegister::SHOW_BACKGROUND)
+                || self.mask.contains(MaskRegister::SHOW_BACKGROUND))
+    }
+
+    pub fn poll_nmi_interrupt(&mut self) -> bool {
+        if let Some(delay) = self.nmi_interrupt.take() {
+            if delay == 0 {
+                return true;
+            } else {
+                self.nmi_interrupt = Some(delay - 1);
+            }
+        }
+
+        false
+    }
+}
+
+impl Mem for PPU {
+    fn mem_read(&mut self, addr: u16) -> u8 {
+        match addr {
+            0x2000 | 0x2001 | 0x2003 | 0x2005 | 0x2006 => self.open_bus,
+            0x2002 => {
+                let data = self.read_status();
+
+                if self.scanline == 240 && self.cycles == 340 {
+                    self.suppress_vblank = true;
+                    0
+                } else {
+                    data
+                }
+
+                /*
+                self.open_bus = (self.open_bus & 0b0001_1111) | (data & 0b1110_0000);
+                self.open_bus
+                */
+            }
+            0x2004 => {
+                let data = self.read_oam_data();
+                self.open_bus = data;
+                self.open_bus
+            }
+            0x2007 => {
+                let data = self.read_data();
+                self.open_bus = data;
+                self.open_bus
+            }
+            _ => unreachable!("Addr {:04X} is not PPU region", addr),
+        }
+    }
+
+    fn mem_write(&mut self, addr: u16, data: u8) {
+        match addr {
+            0x2000 => {
+                self.write_to_ctrl(data);
+                self.open_bus = data;
+            }
+            0x2001 => {
+                self.write_to_mask(data);
+                self.open_bus = data;
+            }
+            0x2002 => {
+                self.open_bus = data;
+            }
+            0x2003 => {
+                self.write_to_oam_addr(data);
+            }
+            0x2004 => {
+                self.write_to_oam_data(data);
+            }
+            0x2005 => {
+                self.write_to_scroll(data);
+                self.open_bus = data;
+            }
+            0x2006 => {
+                self.write_to_ppu_addr(data);
+                self.open_bus = data;
+            }
+            0x2007 => {
+                self.write_data(data);
+                self.open_bus = data;
+            }
+            _ => unreachable!("Addr {:04X} is not PPU region", addr),
+        }
+    }
 }
 
 impl Inspector for PPU {
     fn inspect(&self, addr: u16) -> u8 {
         match addr {
-            0x2000 => self.ctrl.bits(),
-            0x2001 => self.mask.bits(),
-            0x2002 => self.status.bits(),
-            0x2003 => self.oam_addr,
+            0x2000 | 0x2001 | 0x2003 | 0x2005 | 0x2006 | 0x2007 => self.open_bus,
+            0x2002 => (self.status.bits() & 0b1110_0000) | (self.open_bus & 0b0001_1111),
             0x2004 => self.read_oam_data(),
-            0x2005 => {
-                if self.scroll.latch {
-                    self.scroll.x
-                } else {
-                    self.scroll.y
-                }
-            }
-            0x2006 | 0x2007 => 0xFF,
             _ => panic!("{:X} is not a PPU region", addr),
         }
     }

@@ -133,7 +133,7 @@ fn main() {
     cpu.reset();
     // cpu.program_counter = 0xc000;
     // cpu.exit_on_brk = true;
-    // cpu.run();
+    cpu.run();
 
     cpu.run_with_callback(move |cpu| {
         tracing::info!("{}", trace2(cpu));

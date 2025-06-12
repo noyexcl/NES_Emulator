@@ -40,6 +40,7 @@ pub struct Bus<'call> {
     ppu: PPU,
     pub apu: APU,
     joypad: Joypad,
+    open_bus: u8,
 
     pub cycles: usize,
     pub cpu_stall: usize,
@@ -66,6 +67,8 @@ impl<'call> Bus<'call> {
             cycles: 0,
             cpu_stall: 0,
             gameloop_callback: Box::from(gameloop_callback),
+
+            open_bus: 0,
         }
     }
 
@@ -92,8 +95,8 @@ impl<'call> Bus<'call> {
         }
     }
 
-    pub fn poll_nmi_status(&mut self) -> Option<u8> {
-        self.ppu.nmi_interrupt.take()
+    pub fn poll_nmi_status(&mut self) -> bool {
+        self.ppu.poll_nmi_interrupt()
     }
 
     pub fn poll_irq_status(&self) -> bool {
@@ -102,15 +105,19 @@ impl<'call> Bus<'call> {
 
     /// Reset PPU & APU state, and clock them a certain number of times before first instruction begins.
     pub fn reset(&mut self) {
-        self.cycles = 7;
+        self.cycles = 8;
 
-        for _ in 0..= 7 {
+        for _ in 0..=8 {
             for _ in 0..3 {
                 self.ppu.tick();
             }
         }
 
         self.apu.reset();
+    }
+
+    pub fn get_ppu_position(&self) -> (u16, usize) {
+        (self.ppu.scanline, self.ppu.cycles)
     }
 }
 
@@ -121,12 +128,11 @@ const PPU_REGISTERS_MIRRORS_END: u16 = 0x3FFF;
 
 impl Mem for Bus<'_> {
     fn mem_read(&mut self, addr: u16) -> u8 {
-        match addr {
+        self.open_bus = match addr {
             RAM..=RAM_MIRRORS_END => {
                 let mirror_down_addr = addr & 0b0000_0111_1111_1111;
                 self.cpu_vram[mirror_down_addr as usize]
             }
-            0x2000 | 0x2001 | 0x2003 | 0x2005 | 0x2006 | 0x4014 => 0x00, // TODO: Open bus
             0x2002 => self.ppu.read_status(),
             0x2004 => self.ppu.read_oam_data(),
             0x2007 => self.ppu.read_data(),
@@ -140,11 +146,10 @@ impl Mem for Bus<'_> {
                 self.mem_read(mirror_down_addr)
             }
             0x8000..=0xFFFF => self.rom.read_prg_rom(addr),
-            _ => {
-                println!("Ignoring mem access(read) at {:x}", addr);
-                0
-            }
-        }
+            _ => self.open_bus,
+        };
+
+        self.open_bus
     }
 
     fn mem_write(&mut self, addr: u16, data: u8) {
@@ -212,6 +217,8 @@ impl Mem for Bus<'_> {
                 println!("Ignoring mem access(write) at {:x}", addr);
             }
         }
+
+        self.open_bus = data;
     }
 }
 
