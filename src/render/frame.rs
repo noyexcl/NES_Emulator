@@ -1,5 +1,3 @@
-use super::palette::SYSTEM_PALETTE;
-
 pub struct Frame {
     pub data: Vec<u8>,
 }
