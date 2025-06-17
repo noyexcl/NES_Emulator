@@ -63,6 +63,15 @@ fn main() {
     let audio_queue: AudioQueue<i16> = audio_subsystem.open_queue(None, &desired_spec).unwrap();
     audio_queue.resume();
 
+    let wav_spec = hound::WavSpec {
+        channels: 2,
+        bits_per_sample: 16,
+        sample_rate: 44100,
+        sample_format: hound::SampleFormat::Int,
+    };
+
+    let mut audio_record: Vec<i16> = vec![];
+
     // init joypad
     let mut key_map = HashMap::new();
     key_map.insert(Keycode::Down, JoypadButton::DOWN);
@@ -83,6 +92,10 @@ fn main() {
     let mut frame = Frame::new();
 
     let bus = Bus::new(rom, move |ppu: &PPU, apu: &mut APU, joypad: &mut Joypad| {
+        let mut sound = apu.output();
+        audio_queue.queue(&sound.buffer);
+        audio_record.append(&mut sound.buffer);
+
         render::render(ppu, &mut frame);
         texture.update(None, &frame.data, 256 * 3).unwrap();
 
@@ -90,16 +103,22 @@ fn main() {
         canvas.copy(&texture, None, None).unwrap();
         canvas.present();
 
-        let sound = apu.output();
-        audio_queue.queue(&sound.buffer);
-
         for event in event_pump.poll_iter() {
             match event {
                 Event::Quit { .. }
                 | Event::KeyDown {
                     keycode: Some(Keycode::Escape),
                     ..
-                } => std::process::exit(0),
+                } => {
+                    let mut writer = hound::WavWriter::create("output.wav", wav_spec).unwrap();
+                    for sample in audio_record.iter() {
+                        writer.write_sample(*sample).unwrap();
+                    }
+
+                    writer.finalize().unwrap();
+
+                    std::process::exit(0)
+                }
 
                 Event::KeyDown { keycode, .. } => {
                     if let Some(key) = key_map.get(&keycode.unwrap_or(Keycode::Ampersand)) {
