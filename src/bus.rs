@@ -116,7 +116,7 @@ impl<'call> Bus<'call> {
         self.apu.reset();
     }
 
-    pub fn get_ppu_position(&self) -> (u16, usize) {
+    pub fn get_ppu_position(&self) -> (usize, usize) {
         (self.ppu.scanline, self.ppu.cycles)
     }
 }
@@ -133,9 +133,9 @@ impl Mem for Bus<'_> {
                 let mirror_down_addr = addr & 0b0000_0111_1111_1111;
                 self.cpu_vram[mirror_down_addr as usize]
             }
-            0x2002 => self.ppu.read_status(),
-            0x2004 => self.ppu.read_oam_data(),
-            0x2007 => self.ppu.read_data(),
+
+            0x2000..=0x2007 => self.ppu.read_port(addr),
+
             0x4000..=0x4014 => 0x00, // TODO: Open bus
             0x4015 => self.apu.read_register(addr),
             0x4016 => self.joypad.read(),
@@ -158,31 +158,8 @@ impl Mem for Bus<'_> {
                 let mirror_down_addr = addr & 0b0000_0111_1111_1111;
                 self.cpu_vram[mirror_down_addr as usize] = data;
             }
-            0x2000 => {
-                self.ppu.write_to_ctrl(data);
-            }
-            0x2001 => {
-                self.ppu.write_to_mask(data);
-            }
-            0x2002 => {
-                // panic!("Attempt to write to read-only PPU address {:x}", addr);
-                println!("Ignore writing to 0x2002");
-            }
-            0x2003 => {
-                self.ppu.write_to_oam_addr(data);
-            }
-            0x2004 => {
-                self.ppu.write_to_oam_data(data);
-            }
-            0x2005 => {
-                self.ppu.write_to_scroll(data);
-            }
-            0x2006 => {
-                self.ppu.write_to_ppu_addr(data);
-            }
-            0x2007 => {
-                self.ppu.write_data(data);
-            }
+
+            0x2000..=0x2007 => self.ppu.write_to_port(addr, data),
 
             0x4000..=0x4013 | 0x4015 | 0x4017 => self.apu.write_register(addr, data),
 

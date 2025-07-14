@@ -5,7 +5,6 @@ mod joypad;
 mod mem;
 mod opcodes;
 mod ppu;
-mod render;
 mod rom;
 mod trace;
 
@@ -18,7 +17,6 @@ use cpu::CPU;
 use joypad::Joypad;
 use joypad::JoypadButton;
 use ppu::PPU;
-use render::frame::Frame;
 use rom::Rom;
 use sdl2::audio::AudioQueue;
 use sdl2::audio::AudioSpecDesired;
@@ -89,15 +87,15 @@ fn main() {
     let raw = std::fs::read(&args[1]).unwrap();
     let rom = Rom::new(&raw).unwrap();
 
-    let mut frame = Frame::new();
+    // let mut frame = Frame::new();
 
     let bus = Bus::new(rom, move |ppu: &PPU, apu: &mut APU, joypad: &mut Joypad| {
         let mut sound = apu.output();
         audio_queue.queue(&sound.buffer);
         audio_record.append(&mut sound.buffer);
 
-        render::render(ppu, &mut frame);
-        texture.update(None, &frame.data, 256 * 3).unwrap();
+        // render::render(ppu, &mut frame);
+        texture.update(None, &ppu.frame.buffer, 256 * 3).unwrap();
 
         canvas.clear();
         canvas.copy(&texture, None, None).unwrap();
