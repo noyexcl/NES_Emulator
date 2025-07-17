@@ -117,8 +117,6 @@ impl DMC {
     /// A: Sample address = $C000 + (A * 64)
     pub fn write_sample_address(&mut self, val: u8) {
         self.sample_addr = (val as u16) * 64 + 0xC000;
-
-        println!("Sample address: {:#X}", self.sample_addr);
     }
 
     /// $4013 Sample length (write) \

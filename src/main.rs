@@ -87,8 +87,6 @@ fn main() {
     let raw = std::fs::read(&args[1]).unwrap();
     let rom = Rom::new(&raw).unwrap();
 
-    // let mut frame = Frame::new();
-
     let bus = Bus::new(rom, move |ppu: &PPU, apu: &mut APU, joypad: &mut Joypad| {
         let mut sound = apu.output();
         audio_queue.queue(&sound.buffer);

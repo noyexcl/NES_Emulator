@@ -29,12 +29,12 @@ pub struct PPU {
     pub vram: [u8; 2048],
     pub palette_table: [u8; 32],
     pub mirroring: Mirroring,
-    pub ctrl: PPUCTRL,
-    pub mask: PPUMASK,
+    ctrl: PPUCTRL,
+    mask: PPUMASK,
     pending_mask: Option<(u8, u8)>,
-    pub status: PPUSTATUS,
-    pub oam_addr: u8,
-    pub oam_data: [u8; 256],
+    status: PPUSTATUS,
+    oam_addr: u8,
+    oam_data: [u8; 256],
     secandary_oam: Vec<Sprite>,
     data_buffer: u8,
     pub scanline: usize,
@@ -74,7 +74,7 @@ impl PPU {
             secandary_oam: Vec::with_capacity(8),
             mirroring,
             ctrl: PPUCTRL::new(),
-            mask: PPUMASK::default(),
+            mask: PPUMASK::new(),
             pending_mask: None,
             status: PPUSTATUS::new(),
             oam_addr: 0,
@@ -94,7 +94,7 @@ impl PPU {
         }
     }
 
-    pub fn mirror_vram_addr(&self, addr: u16) -> u16 {
+    fn mirror_vram_addr(&self, addr: u16) -> u16 {
         let addr = addr & 0b0010_1111_1111_1111; // mirror down 0x3000-0x3eff to 0x2000-0x2eff
         let addr = addr - 0x2000;
         let idx = addr / 0x400;
@@ -117,7 +117,7 @@ impl PPU {
         }
     }
 
-    pub fn write_to_ctrl(&mut self, value: u8) {
+    fn write_to_ctrl(&mut self, value: u8) {
         let before_nmi_status = self.ctrl.generate_vblank_nmi();
         self.ctrl = PPUCTRL::from_bits_truncate(value);
 
@@ -137,7 +137,7 @@ impl PPU {
         }
     }
 
-    pub fn write_to_mask(&mut self, value: u8) {
+    fn write_to_mask(&mut self, value: u8) {
         // Toggling rendering takes effect approximately 3-4 dots after the write.
         // Other bits should be immediately applied?
         self.pending_mask = Some((2, value));
@@ -154,16 +154,16 @@ impl PPU {
         }
     }
 
-    pub fn write_to_oam_addr(&mut self, value: u8) {
+    fn write_to_oam_addr(&mut self, value: u8) {
         self.oam_addr = value;
     }
 
-    pub fn write_to_oam_data(&mut self, value: u8) {
+    fn write_to_oam_data(&mut self, value: u8) {
         self.oam_data[self.oam_addr as usize] = value;
         self.oam_addr = self.oam_addr.wrapping_add(1);
     }
 
-    pub fn read_oam_data(&self) -> u8 {
+    fn read_oam_data(&self) -> u8 {
         self.oam_data[self.oam_addr as usize]
     }
 
@@ -174,7 +174,7 @@ impl PPU {
         }
     }
 
-    pub fn read_status(&mut self) -> u8 {
+    fn read_status(&mut self) -> u8 {
         let value = self.status.bits();
         self.status.reset_vblank_status();
 
@@ -272,12 +272,6 @@ impl PPU {
 
         self.frame.set_pixel(x, y, color);
 
-        if x == 0 {
-            for i in 0..4 {
-                // println!("palette[{}] = {:x}", i, palette[i]);
-            }
-        }
-
         color_idx != 0x00
     }
 
@@ -326,7 +320,7 @@ impl PPU {
 
             if y <= line && line - y < 8 {
                 if self.secandary_oam.len() == 8 {
-                    self.status.set_sprite_overflow(true);
+                    // self.status.set_sprite_overflow(true);
                     break;
                 }
 
@@ -374,22 +368,19 @@ impl PPU {
                 if sp_rendered
                     && self
                         .mask
-                        .contains(PPUMASK::SHOW_SPRITES & PPUMASK::SHOW_BACKGROUND)
-                    && !((self.cycles >= 1 && self.cycles <= 8)
-                        && (!self.mask.contains(PPUMASK::LEFTMOST_BG)
-                            || self.mask.contains(PPUMASK::LEFTMOST_SP)))
+                        .contains(PPUMASK::SHOW_SPRITES | PPUMASK::SHOW_BACKGROUND)
+                    && (!(1..=8).contains(&self.cycles)
+                        || (self
+                            .mask
+                            .contains(PPUMASK::LEFTMOST_BG | PPUMASK::LEFTMOST_SP)))
                     && self.cycles != 256
                 {
-                    if !self.status.contains(PPUSTATUS::SPRITE_ZERO_HIT) {
-                        self.status.set_sprite_zero_hit(true);
-                    } else {
-                        //
-                    }
+                    self.status.set_sprite_zero_hit(true);
                 }
 
                 if self
                     .mask
-                    .contains(PPUMASK::SHOW_BACKGROUND | PPUMASK::SHOW_SPRITES)
+                    .intersects(PPUMASK::SHOW_BACKGROUND | PPUMASK::SHOW_SPRITES)
                 {
                     self.inc_x();
 
@@ -398,11 +389,10 @@ impl PPU {
                     }
                 }
             }
-            (0..=239, 257..=320) => {
-                if self.cycles == 257
-                    && (self
-                        .mask
-                        .contains(PPUMASK::SHOW_BACKGROUND | PPUMASK::SHOW_SPRITES))
+            (0..=239, 257) => {
+                if self
+                    .mask
+                    .intersects(PPUMASK::SHOW_BACKGROUND | PPUMASK::SHOW_SPRITES)
                 {
                     // hori(v) = hori(t)
                     // v: ... .A ..... BCDEF <- t: ... .A ..... BCDEF
@@ -410,24 +400,6 @@ impl PPU {
                     self.v = self.v & !mask | self.t & mask;
                     self.x = self.t_x;
                 }
-
-                // Fetch tile data for sprites on the next scanline. every step takes 2 cycles (8 cycles in total).
-                // 1. Garbage nametable byte
-                // 2. Garbage nametable byte
-                // 3. Pattern table tile low
-                // 4. Pattern table tile high (pattern table low + 8 bytes)
-            }
-            (0..=239, 321..=336) => {
-                // Fetch first 2 tiles for the next scanline. every step takes 2 cycles.
-                // 1. Nametable byte
-                // 2. Attribute table byte
-                // 3. Pattern table tile low
-                // 4. Pattern table tile hight (pattern table low + 8 bytes)
-            }
-            (0..=239, 337..=340) => {
-                // Fetch 2 bytes (dummy). every step takes 2 cycles (4 cycles in total).
-                // 1. Nametable byte
-                // 2. Nametable byte
             }
             (240, 340) => {
                 if self.ctrl.generate_vblank_nmi() {
@@ -450,13 +422,12 @@ impl PPU {
                 self.status.reset_vblank_status();
                 self.status.set_sprite_zero_hit(false);
                 self.status.set_sprite_overflow(false);
-                //self.nmi_interrupt = None;
             }
             (261, 257) => {}
             (261, 280..=304) => {
                 if self
                     .mask
-                    .contains(PPUMASK::SHOW_BACKGROUND | PPUMASK::SHOW_SPRITES)
+                    .intersects(PPUMASK::SHOW_BACKGROUND | PPUMASK::SHOW_SPRITES)
                 {
                     // v: GHI A. BCDEF ..... <- t: GHI A. BCDEF .....
                     let mask = 0b111_10_11111_00000;
@@ -482,11 +453,7 @@ impl PPU {
     }
 
     fn should_skip_last_tick(&self) -> bool {
-        self.scanline == 261
-            && self.odd_frame
-            && self
-                .mask
-                .contains(PPUMASK::SHOW_BACKGROUND | PPUMASK::SHOW_SPRITES)
+        self.scanline == 261 && self.odd_frame && self.mask.contains(PPUMASK::SHOW_BACKGROUND)
     }
 
     pub fn poll_nmi_interrupt(&mut self) -> bool {
@@ -557,7 +524,7 @@ impl PPU {
             // tile_y can be set out of bounds (>29). tiles stored there are attribute data.
             // If tile_y is incremented from 31, it will wrap to 0 in the same table.
             } else if tile_y == 31 {
-                tile_y = 0; // tile_y = 0, nametable not switched
+                tile_y = 0; // nametable not switched
             } else {
                 tile_y += 1 // Increment tile_y
             }
@@ -628,18 +595,7 @@ impl PPU {
             0x2000 | 0x2001 | 0x2003 | 0x2005 | 0x2006 => self.open_bus,
             0x2002 => {
                 self.w = false;
-
-                let data = self.read_status();
-
-                let data = if self.scanline == 240 && self.cycles == 340 {
-                    self.suppress_vblank = true;
-                    0
-                } else {
-                    data
-                };
-
-                self.open_bus = (self.open_bus & 0b0001_1111) | (data & 0b1110_0000);
-                self.open_bus
+                self.read_status()
             }
             0x2004 => {
                 let data = self.read_oam_data();
@@ -649,8 +605,8 @@ impl PPU {
             0x2007 => {
                 let result = self.data_buffer;
                 self.data_buffer = self.mem_read(self.v & 0x3FFF);
-                // self.v += self.ctrl.vram_addr_increment() as u16;
-                self.v = self.v.wrapping_add(self.ctrl.vram_addr_increment() as u16);
+                self.v += self.ctrl.vram_addr_increment() as u16;
+                // self.v = self.v.wrapping_add(self.ctrl.vram_addr_increment() as u16);
 
                 result
             }
@@ -672,7 +628,9 @@ impl PPU {
             0x2001 => {
                 self.write_to_mask(data);
             }
-            0x2002 => {}
+            0x2002 => {
+                self.open_bus = data;
+            }
             0x2003 => {
                 self.write_to_oam_addr(data);
             }
@@ -681,12 +639,12 @@ impl PPU {
             }
             0x2005 => {
                 if self.w {
-                    // t: FGH..AB CDE..... <- d: ABCDEFGH
+                    // t: FGH .. ABCDE ..... <- d: ABCDEFGH
                     let fine_y = data & 0b111;
                     let tile_y = (data & 0b1111_1000) >> 3;
 
-                    self.t = self.t & 0b000_11_00000_11111
-                        | (fine_y as u16) << 13
+                    self.t = (self.t & 0b000_11_00000_11111)
+                        | (fine_y as u16) << 12
                         | (tile_y as u16) << 5;
                 } else {
                     // t: ....... ...ABCDE <- d: ABCDE...
@@ -718,7 +676,7 @@ impl PPU {
             }
             0x2007 => {
                 self.mem_write(self.v & 0x3FFF, data);
-                self.v = self.v.wrapping_add(self.ctrl.vram_addr_increment() as u16);
+                self.v += self.ctrl.vram_addr_increment() as u16;
             }
             _ => unreachable!("Addr {:04X} is not PPU region", addr),
         }
@@ -741,7 +699,6 @@ impl Inspector for PPU {
     }
 }
 
-/*
 #[cfg(test)]
 pub mod test {
     use super::*;
@@ -749,116 +706,121 @@ pub mod test {
     #[test]
     fn test_ppu_vram_writes() {
         let mut ppu = PPU::new(vec![0; 2048], Mirroring::Horizontal);
-        ppu.write_to_ppu_addr(0x23);
-        ppu.write_to_ppu_addr(0x05);
-        ppu.write_data(0x66);
+        ppu.write_to_port(0x2006, 0x23);
+        ppu.write_to_port(0x2006, 0x05);
+        ppu.write_to_port(0x2007, 0x66); // write 0x66 to 0x2305 (in vram address, it's 0x0305)
 
-        assert_eq!(ppu.vram[0x0305], 0x66);
+        assert_eq!(ppu.vram[0x0305], 0x66); // read 0x66 from 0x2305
     }
 
     #[test]
     fn test_ppu_vram_reads() {
         let mut ppu = PPU::new(vec![0; 2048], Mirroring::Horizontal);
-        ppu.write_to_ctrl(0);
-        ppu.vram[0x0305] = 0x66;
+        ppu.write_to_port(0x2000, 0);
+        ppu.vram[0x0305] = 0x66; // write 0x66 to 0x2305
 
-        ppu.write_to_ppu_addr(0x23);
-        ppu.write_to_ppu_addr(0x05);
-
-        ppu.read(); //load_into_buffer
-        assert_eq!(ppu.addr.get(), 0x2306);
-        assert_eq!(ppu.read(), 0x66);
+        ppu.write_to_port(0x2006, 0x23);
+        ppu.write_to_port(0x2006, 0x05);
+        let _ = ppu.read_port(0x2007); // Load value at 0x2305 into buffer
+        let data = ppu.read_port(0x2007);
+        assert_eq!(data, 0x66);
     }
 
     #[test]
     fn test_ppu_vram_reads_cross_page() {
         let mut ppu = PPU::new(vec![0; 2048], Mirroring::Horizontal);
-        ppu.write_to_ctrl(0);
-        ppu.vram[0x01ff] = 0x66;
-        ppu.vram[0x0200] = 0x77;
+        ppu.write_to_port(0x2000, 0);
+        ppu.vram[0x01ff] = 0x66; // write 0x66 to 0x21ff
+        ppu.vram[0x0200] = 0x77; // write 0x77 to 0x2200
 
-        ppu.write_to_ppu_addr(0x21);
-        ppu.write_to_ppu_addr(0xff);
+        ppu.write_to_port(0x2006, 0x21);
+        ppu.write_to_port(0x2006, 0xff);
 
-        ppu.read(); //load_into_buffer
-        assert_eq!(ppu.read(), 0x66);
-        assert_eq!(ppu.read(), 0x77);
+        let _ = ppu.read_port(0x2007); // Load value at 0x21ff into buffer and increment vram address (it now should be pointing to 0x2200)
+        let data = ppu.read_port(0x2007); // Get value in buffer (value at 0x21ff)  and load value at 0x2200 into buffer
+        assert_eq!(data, 0x66);
+
+        let data = ppu.read_port(0x2007); // Get value in buffer (value at 0x2200)
+        assert_eq!(data, 0x77);
     }
 
     #[test]
     fn test_ppu_vram_reads_step_32() {
         let mut ppu = PPU::new(vec![0; 2048], Mirroring::Horizontal);
-        ppu.write_to_ctrl(0b100);
-        ppu.vram[0x01ff] = 0x66;
-        ppu.vram[0x01ff + 32] = 0x77;
-        ppu.vram[0x01ff + 64] = 0x88;
+        ppu.write_to_port(0x2000, 0b100);
+        ppu.vram[0x01ff] = 0x66; // write 0x66 to 0x21ff
+        ppu.vram[0x01ff + 32] = 0x77; // write 0x77 to 0x221f
+        ppu.vram[0x01ff + 64] = 0x88; // write 0x88 to 0x223f
 
-        ppu.write_to_ppu_addr(0x21);
-        ppu.write_to_ppu_addr(0xff);
+        ppu.write_to_port(0x2006, 0x21);
+        ppu.write_to_port(0x2006, 0xff);
 
-        ppu.read(); //load_into_buffer
-        assert_eq!(ppu.read(), 0x66);
-        assert_eq!(ppu.read(), 0x77);
-        assert_eq!(ppu.read(), 0x88);
+        let _ = ppu.read_port(0x2007);
+        let data = ppu.read_port(0x2007);
+        assert_eq!(data, 0x66);
+
+        let data = ppu.read_port(0x2007);
+        assert_eq!(data, 0x77);
+
+        let data = ppu.read_port(0x2007);
+        assert_eq!(data, 0x88);
     }
 
-    // Horizontal: https://wiki.nesdev.com/w/index.php/Mirroring
-    //   [0x2000 A ] [0x2400 a ]
-    //   [0x2800 B ] [0x2C00 b ]
     #[test]
     fn test_vram_horizontal_mirror() {
+        // Horizontal: https://wiki.nesdev.com/w/index.php/Mirroring
+        //   [0x2000 A] [0x2400 A]  A = 0x2000, B = 0x2400
+        //   [0x2800 B] [0x2C00 B]
+
         let mut ppu = PPU::new(vec![0; 2048], Mirroring::Horizontal);
-        ppu.write_to_ppu_addr(0x24);
-        ppu.write_to_ppu_addr(0x05);
+        ppu.write_to_port(0x2006, 0x24);
+        ppu.write_to_port(0x2006, 0x05); // In horizontal mirroring, 0x2405 should be mirrored to 0x2005
+        ppu.write_to_port(0x2007, 0x66); // Write 0x66 to 0x2005
 
-        ppu.write_data(0x66); //write to a
+        ppu.write_to_port(0x2006, 0x28); // In horizontal mirroring, 0x2805 should be mirrored to 0x2405
+        ppu.write_to_port(0x2006, 0x05);
+        ppu.write_to_port(0x2007, 0x77); // Write 0x77 to 0x2405
 
-        ppu.write_to_ppu_addr(0x28);
-        ppu.write_to_ppu_addr(0x05);
+        ppu.write_to_port(0x2006, 0x20);
+        ppu.write_to_port(0x2006, 0x05);
+        let _ = ppu.read_port(0x2007); // Load value at 0x2005 into buffer
+        let data = ppu.read_port(0x2007); // Get value in buffer
+        assert_eq!(data, 0x66);
 
-        ppu.write_data(0x77); //write to B
-
-        ppu.write_to_ppu_addr(0x20);
-        ppu.write_to_ppu_addr(0x05);
-
-        ppu.read(); //load into buffer
-        assert_eq!(ppu.read(), 0x66); //read from A
-
-        ppu.write_to_ppu_addr(0x2C);
-        ppu.write_to_ppu_addr(0x05);
-
-        ppu.read(); //load into buffer
-        assert_eq!(ppu.read(), 0x77); //read from b
+        ppu.write_to_port(0x2006, 0x2C);
+        ppu.write_to_port(0x2006, 0x05); // In horizontal mirroring, 0x2C05 should be mirrored to 0x2405
+        let _ = ppu.read_port(0x2007); // Load value at 0x2405 into buffer
+        let data = ppu.read_port(0x2007); // Get value in buffer
+        assert_eq!(data, 0x77);
     }
 
-    // Vertical: https://wiki.nesdev.com/w/index.php/Mirroring
-    //   [0x2000 A ] [0x2400 B ]
-    //   [0x2800 a ] [0x2C00 b ]
     #[test]
     fn test_vram_vertical_mirror() {
+        // Vertical: https://wiki.nesdev.com/w/index.php/Mirroring
+        //   [0x2000 A] [0x2400 B]  A = 0x2000, B = 0x2400
+        //   [0x2800 A] [0x2C00 B]
+
         let mut ppu = PPU::new(vec![0; 2048], Mirroring::Vertical);
 
-        ppu.write_to_ppu_addr(0x20);
-        ppu.write_to_ppu_addr(0x05);
+        ppu.write_to_port(0x2006, 0x20);
+        ppu.write_to_port(0x2006, 0x05);
+        ppu.write_to_port(0x2007, 0x66); // Write 0x66 to 0x2005
 
-        ppu.write_data(0x66); //write to A
+        ppu.write_to_port(0x2006, 0x24);
+        ppu.write_to_port(0x2006, 0x05);
+        ppu.write_to_port(0x2007, 0x77); // Write 0x77 to 0x2405
 
-        ppu.write_to_ppu_addr(0x2C);
-        ppu.write_to_ppu_addr(0x05);
+        ppu.write_to_port(0x2006, 0x28);
+        ppu.write_to_port(0x2006, 0x05);
+        let _ = ppu.read_port(0x2007);
+        let data = ppu.read_port(0x2007);
+        assert_eq!(data, 0x66); // If 0x2005 == 0x2805
 
-        ppu.write_data(0x77); //write to b
-
-        ppu.write_to_ppu_addr(0x28);
-        ppu.write_to_ppu_addr(0x05);
-
-        ppu.read(); //load into buffer
-        assert_eq!(ppu.read(), 0x66); //read from a
-
-        ppu.write_to_ppu_addr(0x24);
-        ppu.write_to_ppu_addr(0x05);
-
-        ppu.read(); //load into buffer
-        assert_eq!(ppu.read(), 0x77); //read from B
+        ppu.write_to_port(0x2006, 0x2C);
+        ppu.write_to_port(0x2006, 0x05);
+        let _ = ppu.read_port(0x2007);
+        let data = ppu.read_port(0x2007);
+        assert_eq!(data, 0x77); // If 0x2405 == 0x2C05
     }
 
     #[test]
@@ -866,34 +828,30 @@ pub mod test {
         let mut ppu = PPU::new(vec![0; 2048], Mirroring::Horizontal);
         ppu.vram[0x0305] = 0x66;
 
-        ppu.write_to_ppu_addr(0x21);
-        ppu.write_to_ppu_addr(0x23);
-        ppu.write_to_ppu_addr(0x05);
+        ppu.write_to_port(0x2006, 0x21);
 
-        ppu.read(); //load_into_buffer
-        assert_ne!(ppu.read(), 0x66);
+        ppu.read_port(0x2002); // Reset latch
 
-        ppu.read_status();
+        ppu.write_to_port(0x2006, 0x23);
+        ppu.write_to_port(0x2006, 0x05);
 
-        ppu.write_to_ppu_addr(0x23);
-        ppu.write_to_ppu_addr(0x05);
-
-        ppu.read(); //load_into_buffer
-        assert_eq!(ppu.read(), 0x66);
+        let _ = ppu.read_port(0x2007);
+        let data = ppu.read_port(0x2007);
+        assert_eq!(data, 0x66);
     }
 
     #[test]
     fn test_ppu_vram_mirroring() {
         let mut ppu = PPU::new(vec![0; 2048], Mirroring::Horizontal);
-        ppu.write_to_ctrl(0);
+        ppu.write_to_port(0x2000, 0);
         ppu.vram[0x0305] = 0x66;
 
-        ppu.write_to_ppu_addr(0x63); //0x6305 -> 0x2305
-        ppu.write_to_ppu_addr(0x05);
+        ppu.write_to_port(0x2006, 0x63); //0x6305 -> 0x2305
+        ppu.write_to_port(0x2006, 0x05);
 
-        ppu.read(); //load into_buffer
-        assert_eq!(ppu.read(), 0x66);
-        // assert_eq!(ppu.addr.read(), 0x0306)
+        let _ = ppu.read_port(0x2007); // Load value at 0x2305 into buffer
+        let data = ppu.read_port(0x2007); // Get value in buffer
+        assert_eq!(data, 0x66);
     }
 
     #[test]
@@ -942,4 +900,3 @@ pub mod test {
         assert_eq!(ppu.read_oam_data(), 0x66);
     }
 }
-*/

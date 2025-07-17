@@ -106,8 +106,8 @@ bitflags! {
     }
 }
 
-impl Default for PPUMASK {
-    fn default() -> Self {
+impl PPUMASK {
+    pub fn new() -> Self {
         PPUMASK::from_bits_truncate(0b0000_0000)
     }
 }
