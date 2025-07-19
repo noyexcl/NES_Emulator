@@ -11,12 +11,14 @@ use frame::Frame;
 #[derive(Debug)]
 struct Sprite {
     x: usize,
+    /// Actual Y position (Y of oam_data + 1)
     y: usize,
     flip_vertical: bool,
     flip_horizontal: bool,
     tile_idx: usize,
     palette_idx: usize,
     is_zero: bool,
+    is_front: bool,
 }
 
 #[allow(clippy::upper_case_acronyms)]
@@ -270,16 +272,17 @@ impl PPU {
         let color_idx = self.get_color_idx(tile, self.fine_x() as usize, self.fine_y() as usize);
         let color = palette[color_idx];
 
-        self.frame.set_pixel(x, y, color);
-
-        color_idx != 0x00
+        if self.mask.contains(PPUMASK::SHOW_BACKGROUND) {
+            self.frame.set_pixel(x, y, color);
+            color_idx != 0x00
+        } else {
+            false
+        }
     }
 
     /// Render the first registered sprite dot that is opaque if there are any. \
     /// Return if it actually rendered.
-    fn render_sp_dot(&mut self, x: usize, y: usize) -> bool {
-        let mut sprite_0_hit = false;
-
+    fn render_sp_dot(&mut self, x: usize, y: usize, bg_is_opaque: bool) {
         // We just render every sprites in reverse to display the first opaque one.
         for sprite in self.secandary_oam.iter().rev() {
             if sprite.x <= x && x - sprite.x < 8 {
@@ -301,17 +304,24 @@ impl PPU {
                 let color_idx = self.get_color_idx(tile, offset_x, offset_y);
                 let color = palette[color_idx];
 
-                if color_idx != 0x00 {
+                let opaque = color_idx != 0x00;
+                let within_screen =
+                    !(0..=7).contains(&x) || self.mask.contains(PPUMASK::LEFTMOST_SP);
+                let come_to_front = !bg_is_opaque || sprite.is_front;
+
+                if self.mask.contains(PPUMASK::SHOW_SPRITES)
+                    && opaque
+                    && come_to_front
+                    && within_screen
+                {
                     self.frame.set_pixel(x, y, color);
 
                     if sprite.is_zero {
-                        sprite_0_hit = true;
+                        self.status.set_sprite_zero_hit(true);
                     }
                 }
             }
         }
-
-        sprite_0_hit
     }
 
     fn find_sprites_on(&mut self, line: usize) {
@@ -332,6 +342,7 @@ impl PPU {
                     flip_horizontal: self.oam_data[i + 2] >> 6 & 1 == 1,
                     palette_idx: (self.oam_data[i + 2] & 0b11) as usize,
                     is_zero: i == 0,
+                    is_front: self.oam_data[i + 2] >> 5 & 1 != 1,
                 });
             }
         }
@@ -353,30 +364,8 @@ impl PPU {
                 }
             }
             (0..=239, 1..=256) => {
-                let bg_rendered = if self.mask.contains(PPUMASK::SHOW_BACKGROUND) {
-                    self.render_bg_dot(self.cycles - 1, self.scanline)
-                } else {
-                    false
-                };
-
-                let sp_rendered = if self.mask.contains(PPUMASK::SHOW_SPRITES) {
-                    self.render_sp_dot(self.cycles - 1, self.scanline)
-                } else {
-                    false
-                };
-
-                if sp_rendered
-                    && self
-                        .mask
-                        .contains(PPUMASK::SHOW_SPRITES | PPUMASK::SHOW_BACKGROUND)
-                    && (!(1..=8).contains(&self.cycles)
-                        || (self
-                            .mask
-                            .contains(PPUMASK::LEFTMOST_BG | PPUMASK::LEFTMOST_SP)))
-                    && self.cycles != 256
-                {
-                    self.status.set_sprite_zero_hit(true);
-                }
+                let bg_is_opaque = self.render_bg_dot(self.cycles - 1, self.scanline);
+                self.render_sp_dot(self.cycles - 1, self.scanline, bg_is_opaque);
 
                 if self
                     .mask
@@ -898,5 +887,202 @@ pub mod test {
 
         ppu.write_to_oam_addr(0x11);
         assert_eq!(ppu.read_oam_data(), 0x66);
+    }
+
+    fn set_sp_palette(ppu: &mut PPU, idx: usize, value: &[u8]) {
+        let start = 0x11 + idx * 4;
+        ppu.palette_table[start] = value[0];
+        ppu.palette_table[start + 1] = value[1];
+        ppu.palette_table[start + 2] = value[2];
+    }
+
+    #[test]
+    fn test_sprite_order() {
+        let mut chr_rom = vec![0; 2048];
+
+        // Tile 0 has 11 at the top left dot.
+        chr_rom[0] = 0b1000_0000;
+        chr_rom[8] = 0b1000_0000;
+
+        // Tile 1 has 10 at the top left dot.
+        chr_rom[16] = 0b0000_0000;
+        chr_rom[24] = 0b1000_0000;
+
+        let mut ppu = PPU::new(chr_rom, Mirroring::Horizontal);
+        ppu.mask = PPUMASK::SHOW_SPRITES | PPUMASK::LEFTMOST_SP;
+
+        // Draw 01 as 0x11, 10 as 0x22, 11 as 0x33
+        set_sp_palette(&mut ppu, 0, &[0x11, 0x22, 0x33]);
+
+        ppu.secandary_oam.push(Sprite {
+            x: 0,
+            y: 1,
+            flip_vertical: false,
+            flip_horizontal: false,
+            tile_idx: 0,
+            palette_idx: 0,
+            is_zero: false,
+            is_front: false,
+        });
+
+        ppu.secandary_oam.push(Sprite {
+            x: 0,
+            y: 1,
+            flip_vertical: false,
+            flip_horizontal: false,
+            tile_idx: 1,
+            palette_idx: 0,
+            is_zero: false,
+            is_front: false,
+        });
+
+        ppu.render_sp_dot(0, 1, false);
+
+        // First sprite with tile 0 should be rendered on the top.
+        assert_eq!(ppu.frame.get_pixel(0, 1), 0x33);
+
+        ppu.secandary_oam[0].tile_idx = 1;
+        ppu.secandary_oam[1].tile_idx = 0;
+        ppu.render_sp_dot(0, 1, false);
+
+        assert_eq!(ppu.frame.get_pixel(0, 1), 0x22);
+    }
+
+    #[test]
+    fn test_transparent_sprite() {
+        let mut chr_rom = vec![0; 2048];
+
+        // Tile 0 has 00 (transparent color) at the top left dot.
+        chr_rom[0] = 0b0000_0000;
+        chr_rom[8] = 0b0000_0000;
+
+        // Tile 1 has 10 at the top left dot.
+        chr_rom[16] = 0b0000_0000;
+        chr_rom[24] = 0b1000_0000;
+
+        let mut ppu = PPU::new(chr_rom, Mirroring::Horizontal);
+        ppu.mask = PPUMASK::SHOW_SPRITES | PPUMASK::LEFTMOST_SP;
+
+        // Draw 01 as 0x11, 10 as 0x22, 11 as 0x33
+        set_sp_palette(&mut ppu, 0, &[0x11, 0x22, 0x33]);
+
+        ppu.secandary_oam.push(Sprite {
+            x: 0,
+            y: 1,
+            flip_vertical: false,
+            flip_horizontal: false,
+            tile_idx: 0,
+            palette_idx: 0,
+            is_zero: false,
+            is_front: false,
+        });
+
+        ppu.secandary_oam.push(Sprite {
+            x: 0,
+            y: 1,
+            flip_vertical: false,
+            flip_horizontal: false,
+            tile_idx: 1,
+            palette_idx: 0,
+            is_zero: false,
+            is_front: false,
+        });
+
+        ppu.render_sp_dot(0, 1, false);
+
+        // The second sprite with tile 1 should be render instead of the first transparent sprite.
+        assert_eq!(ppu.frame.get_pixel(0, 1), 0x22);
+    }
+
+    fn set_bg_palette(ppu: &mut PPU, idx: usize, value: &[u8]) {
+        let palette_start: usize = 1 + idx * 4;
+
+        ppu.palette_table[palette_start] = value[0];
+        ppu.palette_table[palette_start + 1] = value[1];
+        ppu.palette_table[palette_start + 2] = value[2];
+    }
+
+    #[test]
+    fn test_render_bg_dot() {
+        let mut chr_rom = vec![0; 2048];
+
+        // Tile 0 has 10 at the top left dot.
+        chr_rom[0] = 0b0000_0000;
+        chr_rom[8] = 0b1000_0000;
+
+        // Tile 1 has 11 at the top left dot.
+        chr_rom[16] = 0b1000_0000;
+        chr_rom[24] = 0b1000_0000;
+
+        let mut ppu = PPU::new(chr_rom, Mirroring::Horizontal);
+        ppu.mask = PPUMASK::SHOW_BACKGROUND | PPUMASK::LEFTMOST_BG;
+
+        ppu.vram[0] = 0x00;
+        ppu.vram[1] = 0x01;
+
+        set_bg_palette(&mut ppu, 0, &[0x11, 0x22, 0x33]);
+
+        // PPU will access vram[0] and get 0x00 idx which refer to tile 0.
+        ppu.render_bg_dot(0, 0);
+        assert_eq!(ppu.frame.get_pixel(0, 0), 0x22);
+
+        ppu.v += 1;
+
+        // PPU will access vram[1] and get 0x01 idx which refer to tile 1.
+        ppu.render_bg_dot(1, 0);
+        assert_eq!(ppu.frame.get_pixel(1, 0), 0x33);
+    }
+
+    #[test]
+    fn test_bg_sp_priority() {
+        let mut chr_rom = vec![0; 2048];
+
+        // Tile 0 has 10 at the top left dot.
+        chr_rom[0] = 0b0000_0000;
+        chr_rom[8] = 0b1000_0000;
+
+        // Tile 1 has 11 at the top left dot.
+        chr_rom[16] = 0b1000_0000;
+        chr_rom[24] = 0b1000_0000;
+
+        let mut ppu = PPU::new(chr_rom, Mirroring::Horizontal);
+        ppu.mask = PPUMASK::SHOW_BACKGROUND
+            | PPUMASK::SHOW_SPRITES
+            | PPUMASK::LEFTMOST_BG
+            | PPUMASK::LEFTMOST_SP;
+
+        set_bg_palette(&mut ppu, 0, &[0x01, 0x02, 0x03]);
+        set_sp_palette(&mut ppu, 0, &[0x11, 0x22, 0x33]);
+
+        ppu.vram[0] = 0x00;
+
+        ppu.secandary_oam.push(Sprite {
+            x: 0,
+            y: 0,
+            flip_vertical: false,
+            flip_horizontal: false,
+            tile_idx: 1,
+            palette_idx: 0,
+            is_zero: false,
+            is_front: false,
+        });
+
+        ppu.render_bg_dot(0, 0);
+        assert_eq!(ppu.frame.get_pixel(0, 0), 0x02);
+
+        ppu.render_sp_dot(0, 0, true);
+        // The sprite is behind the background.
+        assert_eq!(ppu.frame.get_pixel(0, 0), 0x02);
+
+        ppu.secandary_oam[0].is_front = true;
+        ppu.render_sp_dot(0, 0, true);
+        // The sprite is now visible.
+        assert_eq!(ppu.frame.get_pixel(0, 0), 0x33);
+
+        ppu.secandary_oam[0].is_front = false;
+        ppu.render_bg_dot(0, 0);
+        ppu.render_sp_dot(0, 0, false);
+        // The sprite is behind the background but the background is transparent so it will come to the front.
+        assert_eq!(ppu.frame.get_pixel(0, 0), 0x33);
     }
 }
